@@ -1,0 +1,63 @@
+# EchoLocal Drop-In — custom Assist conversation intents (D-DI-5).
+#
+# CARD 4 scope (dropin-decisions.md):
+#   Caller side:  "drop in on [room]" / "intercom [room]" in ONE BREATH —
+#   wake word + full phrase, a sentence trigger, never invoked through the
+#   conversation agent's follow-up/timeout mode. Ambient conversation cannot
+#   trigger these: HA sentence triggers (registered per assist_satellite,
+#   conversation.set_triggers / custom_sentences on the satellite) are only
+#   evaluated AFTER the wake word opens explicitly, and these sentences are
+#   NOT registered with the conversation agent's pipeline, so no follow-up
+#   turn ("...and then drop in on the kitchen?" mid-chat) can reach them.
+#   requires_trigger is therefore enforced by REGISTRATION CHANNEL, not by a
+#   field: these sentences ride the satellite trigger channel only.
+#
+#   Callee side:  "answer" (only while ringing, after the 3s ring floor,
+#   enforced in the session state machine — D-DI-3), "hang up" AND "stop"
+#   (both map to hangup; stop-as-hangup matches Echo muscle memory, D-DI-5
+#   settled). The stop/timer ambiguity is accepted and additionally bounded
+#   by the idle-state guard: these slots only MATCH at the trigger step
+#   while a call is ringing/active on that satellite; in idle state nothing
+#   here fires (see intent_router.py guard + tests).
+#
+# Room slot values alias over Jag's LIVE HA area registry; the authoritative
+# list lives in area_aliases.json (fetched from config/area_registry 2026-10-11).
+# Wildcard slots are deliberately NOT used, so unknown rooms fail intent
+# matching rather than producing an invalid service call.
+language: en
+intents:
+  DropInCall:
+    # Caller, one breath: wake word + phrase. Maps to echolocal_dropin.call.
+    data:
+      - sentences:
+          - "drop in on {room}"
+          - "drop in on [the] {room}"
+          - "intercom {room}"
+          - "intercom [the] {room}"
+    slot: "room"
+    requires_trigger: true  # intent contract: satellite trigger channel only, no follow-up mode
+
+  DropInAnswer:
+    # Callee, while ringing (past the 3s floor). Maps to echolocal_dropin.accept.
+    data:
+      - sentences:
+          - "answer"
+          - "[please] answer [the call]"
+    requires_trigger: true
+    requires_context:
+      dropin_state: ringing  # satellite exposes dropin_state; absent in idle -> no match
+
+  DropInHangup:
+    # "hang up" AND "stop" both end the call, only while ringing/active.
+    # Idle-state guard: dropin_state context absent in idle -> never fires.
+    data:
+      - sentences:
+          - "hang up"
+          - "[please] hang up [the call]"
+          - "stop"
+          - "stop [the] call"
+    requires_trigger: true
+    requires_context:
+      dropin_state:
+        - ringing
+        - in_call

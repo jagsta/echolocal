@@ -1,0 +1,24 @@
+{
+  "_source": "Live HA area_registry via HA websocket (config/area_registry/list), fetched 2026-10-11. Recorded per card4 scope: aliases resolve spoken room names onto Jag's live HA area naming.",
+  "_note": "area_id is authoritative for echolocal_dropin.call targets. Two live quirks recorded verbatim: area_id 'games_room' is DISPLAYED as 'Zaks Room'; display name 'Workshop' has area_id 'garage'. There is no area named or aliased 'gym' in the live registry yet; add one in HA or here when it exists.",
+  "areas": [
+    {"area_id": "bedroom", "name": "Bedroom", "spoken_aliases": ["bedroom", "master bedroom"]},
+    {"area_id": "big_lounge", "name": "Big Lounge", "spoken_aliases": ["big lounge", "lounge", "living room"]},
+    {"area_id": "driveway", "name": "Driveway", "spoken_aliases": ["driveway"]},
+    {"area_id": "finns_room", "name": "Finns Room", "spoken_aliases": ["finns room", "finn's room", "finn room"]},
+    {"area_id": "front", "name": "Front", "spoken_aliases": ["front", "front door"]},
+    {"area_id": "hallway", "name": "Hallway", "spoken_aliases": ["hallway", "hall"]},
+    {"area_id": "kitchen", "name": "Kitchen", "spoken_aliases": ["kitchen"]},
+    {"area_id": "little_lounge", "name": "Little Lounge", "spoken_aliases": ["little lounge", "small lounge"]},
+    {"area_id": "mins_room", "name": "Mins Room", "spoken_aliases": ["mins room", "min's room", "jasmines room", "jasmine's room"]},
+    {"area_id": "outside", "name": "Outside", "spoken_aliases": ["outside", "garden"]},
+    {"area_id": "rear_garden", "name": "Rear Garden", "spoken_aliases": ["rear garden", "back garden"]},
+    {"area_id": "side_garden", "name": "Side Garden", "spoken_aliases": ["side garden"]},
+    {"area_id": "snug", "name": "Snug", "spoken_aliases": ["snug"]},
+    {"area_id": "zaks_room", "name": "Spare Bedroom", "spoken_aliases": ["spare bedroom", "spare room"]},
+    {"area_id": "utility", "name": "Utility", "spoken_aliases": ["utility", "utility room"]},
+    {"area_id": "garage", "name": "Workshop", "spoken_aliases": ["workshop", "garage"]},
+    {"area_id": "games_room", "name": "Zaks Room", "spoken_aliases": ["zaks room", "zak's room", "games room"]},
+    {"area_id": "family_room", "name": "Family Room", "spoken_aliases": ["family room", "playroom"]}
+  ]
+}
