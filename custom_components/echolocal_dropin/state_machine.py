@@ -19,6 +19,7 @@ Decisions implemented here:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Callable
 
 from .const import (
@@ -148,6 +149,7 @@ class CallStateMachine:
         self.now = now or __import__("time").time
         self.max_call_seconds = max_call_seconds
         self.sessions: dict[str, Session] = {}
+        self._lock = Lock()  # call() is check-then-act; serialize it (HA is asyncio-serialized anyway)
         self._busy_rejects: dict[str, str] = {}  # device_id -> rejection reason
         self._reconnect_target: tuple[str, str] | None = None  # (callee, session)
 
@@ -165,12 +167,77 @@ class CallStateMachine:
 
     # -- session lifecycle --------------------------------------------------
 
+    def _find_pair_session(self, device_a: str, device_b: str) -> Session | None:
+        """The live session between exactly this device pair, if any."""
+        for session in self.sessions.values():
+            ids = session.device_ids()
+            if len(ids) == 2 and {device_a, device_b} == set(ids):
+                return session
+        return None
+
     def call(self, session_id: str, caller: Endpoint, callee: Endpoint) -> Session:
-        """Service call: echolocal_dropin.call(target_room) (D-DI-4 owner)."""
+        """Service call: echolocal_dropin.call(target_room) (D-DI-4 owner).
+
+        Serialized under an internal lock: the busy-check / mutual-dial
+        tie-break / session-registration sequence is check-then-act and
+        must not interleave (production HA is single-threaded asyncio, the
+        lock also makes multi-threaded test harnesses sound).
+        """
+        with self._lock:
+            return self._call_locked(session_id, caller, callee)
+
+    def _call_locked(self, session_id: str, caller: Endpoint, callee: Endpoint) -> Session:
         # D-DI-3 permission lookup on the source->target pair.
         if not self.permissions.allowed(caller.room, callee.room):
             self.emit("permission_denied", {"caller": caller.device_id, "callee": callee.device_id})
             raise CallError(f"call {caller.room} -> {callee.room} denied by permission map")
+
+        # D-DI-6 mutual dial: when a live session already exists between the
+        # same device pair, both endpoints are dialing each other. Resolve
+        # deterministically by device-id BEFORE any state is accepted: the
+        # lower-id endpoint is the caller, the higher-id caller is
+        # busy-rejected with a chime. Arrival order must not matter — both HA
+        # instances converge on the same winner (D-DI-6).
+        mutual = self._find_pair_session(caller.device_id, callee.device_id)
+        if mutual is not None:
+            if caller.device_id > callee.device_id:
+                # Arriving caller is the higher id: he loses outright; the
+                # existing session (owned by the lower-id caller) stands.
+                self._busy_reject(caller, callee)
+                raise CallError(
+                    f"mutual dial: {caller.device_id} loses to lower device-id {callee.device_id}"
+                )
+            owner = mutual.endpoints[0].device_id
+            if owner != caller.device_id:
+                # The existing session was owned by the higher id: re-own it so
+                # the lower-id device becomes the caller. The session is
+                # re-keyed to the winning call's session_id and the higher-id
+                # initiator is busy-rejected so his side hears busy regardless
+                # of which dial arrived first.
+                loser = mutual.endpoint(owner)
+                if loser is None:  # defensive: session always holds its owner
+                    raise CallError(f"mutual dial: owner {owner} missing from session")
+                self._busy_reject(loser, callee)
+                self._busy_rejects.pop(caller.device_id, None)
+                caller.state = STATE_DIALING
+                callee.state = STATE_RINGING
+                mutual.endpoints = [caller, callee]
+                mutual.ring_started_at = self.now()
+                self.sessions.pop(mutual.session_id, None)
+                mutual.session_id = session_id
+                self.sessions[session_id] = mutual
+                self.emit(
+                    "ring",
+                    {"session": session_id, "callee": callee.device_id, "caller": caller.device_id},
+                )
+                self.emit(
+                    "mutual_dial_reowned",
+                    {"session": session_id, "caller": caller.device_id, "loser": loser.device_id},
+                )
+                return mutual
+            # Lower id already owns the session: fall through to the normal
+            # busy-reject path below (the arriving higher-id caller is
+            # rejected there because its state is mid-call).
 
         # D-DI-6 busy-reject: either endpoint mid-call rejects with busy chime.
         # A fresh call attempt from a previously-rejected caller clears its flag.

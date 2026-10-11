@@ -199,67 +199,13 @@ def test_busy_reject_makes_caller_state_busy_until_next_attempt():
 
 
 # ---------------------------------------------------------------------------
-# 3. Mutual-dial determinism (D-DI-6)
+# 3. Mutual-dial determinism (D-DI-6) — moved to tests/test_mutual_dial.py
+# (lower-device-id winner pinned under BOTH invocation orders there)
 # ---------------------------------------------------------------------------
-
-def test_mutual_dial_concurrent_lower_device_id_wins():
-    """Two CONCURRENT .call invocations (thread pool to stress ordering):
-    exactly one winner (lower device-id owns the session), loser gets busy,
-    and no session is left in a half-created state."""
-    machine, clock, rec = make_machine()
-
-    def dial(pair):
-        caller, callee = pair
-        try:
-            s = machine.call("s-x", Endpoint(caller, "kitchen"), Endpoint(callee, "living"))
-            return ("ok", s.session_id)
-        except CallError as err:
-            return ("busy", str(err))
-
-    pairs = [("dev-a", "dev-b"), ("dev-b", "dev-a")]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(dial, pairs))
-
-    outcomes = sorted(r[0] for r in results)
-    assert outcomes == ["busy", "ok"]  # exactly one winner, one busy
-    winner_sid = next(r[1] for r in results if r[0] == "ok")
-    session = machine.sessions[winner_sid]
-    # winner is the lower device-id (dev-a) as caller
-    assert session.endpoints[0].device_id == "dev-a"
-    assert machine.endpoint_state("dev-b") == STATE_RINGING
-    assert machine.endpoint_state("dev-a") == STATE_DIALING
-    assert len(rec.kinds("ring")) == 1
-
-
-def test_mutual_dial_ordering_independent_winner():
-    """Invoke both dials in either sequential order: lower device-id (dev-a)
-    always ends as the session owner; the dev-b side is busy_rejected."""
-    for dial_first in ("dev-a", "dev-b"):
-        machine, clock, rec = make_machine()
-        lower, higher = ("dev-a", "kitchen"), ("dev-b", "living")
-        if dial_first == "dev-a":
-            machine.call("s1", Endpoint(*lower), Endpoint(*higher))
-            side_b_caller = Endpoint(*higher)  # dev-b dials back
-            with pytest.raises(CallError):
-                machine.call("s2", side_b_caller, Endpoint(*lower))
-            assert machine.endpoint_state("dev-b") == STATE_RINGING
-        else:
-            machine.call("s1", Endpoint(*higher), Endpoint(*lower))
-            # dev-b initiated first but dev-a is mid-call; lower-id rule means
-            # the s1 attempt from dev-b stands as owner (dev-a dialed into).
-            assert machine.sessions["s1"].endpoints[0].device_id == "dev-b"
-            # dev-a's incoming attempt is busy because dev-b was ringing... but
-            # the deterministic winner rule is caller-side on CONCURRENT dial;
-            # a sequential second call into either ringing endpoint is plain
-            # busy-reject (covered above). Winner by id: dev-b here dialed
-            # first and owns s1.
-        assert "s1" in machine.sessions
-
 
 # ---------------------------------------------------------------------------
 # 4. Mute (D-DI-6): transmit off + amber LED device-side, HA visibility here
 # ---------------------------------------------------------------------------
-
 def test_mute_echo_toggle_and_restore():
     """HA-side mute visibility: set_muted toggles endpoint.muted and emits
     mute_changed; unmute restores muted=False. Transmit stop itself is
