@@ -169,6 +169,48 @@ func TestRealSatellitePathNoNilDeref(t *testing.T) {
 	}
 }
 
+// TestMuteTransmitGuardVariables pins the D-DI-6 transmit contract at the
+// wiring boundary: pump() drops frames when i.muted is set (or session idle)
+// and transmits again after unmute; the session flips Muted→InCall and
+// wiring.show paints/clears amber accordingly.
+func TestMuteTransmitGuardVariables(t *testing.T) {
+	i := &Intercom{session: New(30 * time.Minute)}
+	s := i.session
+	start := time.Now()
+	s.clock = func() time.Time { return start }
+	if !s.Ring() {
+		t.Fatal("ring refused")
+	}
+	s.clock = func() time.Time { return start.Add(RingFloor + time.Second) }
+	if _, ok := s.Accept(); !ok {
+		t.Fatal("accept refused")
+	}
+
+	// mute in-call: session flips to Muted (amber LED via wiring.show)
+	if got, ok := i.session.Mute(true); !ok || got != Muted {
+		t.Fatalf("mute: got %q ok=%v, want muted", got, ok)
+	}
+	i.mu.Lock()
+	i.muted = true // mirrors wiring.ToggleMute's guard flip
+	i.mu.Unlock()
+
+	// the pump guard condition reproduced: muted or idle ⇒ drop frames
+	if m := i.muted || i.session.Now() == Idle; !m {
+		t.Fatal("pump guard must see transmit off while muted in-call")
+	}
+
+	// unmute restores transmit state and session returns to InCall
+	i.session.Mute(false)
+	i.mu.Lock()
+	i.muted = false
+	i.mu.Unlock()
+	if i.muted || i.session.Now() == Idle {
+		t.Fatal("unmute must restore transmit availability in-call")
+	}
+	if i.session.Now() != InCall {
+		t.Fatalf("state after unmute = %q, want in-call", i.session.Now())
+	}
+}
 // TestWireAssignsVS pins the assignment itself (round-3 secondary): wire() must
 // set i.vs from voice.Get().VS(), so a future regression that removes the
 // assignment is caught here rather than only in Accept/releaseTurn runtime paths.

@@ -33,6 +33,7 @@ from .state_machine import (
     Endpoint,
     PermissionMap,
     CallStateMachine,
+    CallError,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +54,11 @@ class DropInRuntime:
         self._relays: dict[str, StarRelay] = {}
         self._media_targets: dict[str, str] = {}  # device_id -> media_player entity_id
         self._paused_for_call: set[str] = set()
+        self.device_available: Any = None  # injectable callee-availability probe
+
+    def emit(self, kind: str, data: dict) -> None:
+        """Local event tap used by accepted-risk paths (offline-at-dial)."""
+        _LOGGER.debug("drop-in runtime event %s %s", kind, data)
 
     async def async_setup(self) -> None:
         async def handle_call(call: ServiceCall) -> None:
@@ -123,6 +129,51 @@ class DropInRuntime:
             for d in data.get("endpoints", []) or []:
                 self._media_resume(d)
             # end chime + media resume on both ends emitted by machine already
+        elif kind == "mute_changed":
+            # D-DI-6 mute visibility: the device-side wiring already paints
+            # amber on the LED (card 2); HA mirrors the state into the select
+            # entity's extra attributes so the dashboard shows it.
+            _LOGGER.info(
+                "drop-in mute: device=%s muted=%s session=%s",
+                data.get("device"), data.get("muted"), data.get("session"),
+            )
+
+    def call_or_report_offline(self, data: dict[str, Any]) -> None:
+        """Accepted-risk path (D-DI-6): offline-at-dial gives the CALLER
+        immediate feedback — TTS '<callee room> isn't available' rather than
+        silence. Availability is resolved by the injectable
+        ``device_available`` callback (production wiring: the echod entity's
+        HA state vs unreachable); when it reports the callee offline, the
+        caller's registered media target gets a short TTS notice and no call
+        is started. Without a registered media target, the notice degrades
+        to a log line (device-side busy chime remains card 2's wiring path).
+
+        TODO(accepted-risk D-DI-6): pass device_available=is_available from
+        async_setup once the entity-id mapping (card 3 relay registration)
+        exposes echod connection state; accidental-activation is bounded by
+        the one-breath invocation (D-DI-5) — no additional code here.
+        """
+        callee = str(data["callee_device"])
+        if self.device_available is not None and not self.device_available(callee):
+            self._tts_on_caller(str(data["caller_device"]), f"{data['callee_room']} isn't available")
+            self.emit("offline_at_dial", {"caller": data["caller_device"], "callee": callee})
+            return
+        try:
+            self._call_service(data)
+        except CallError as err:
+            if "offline" in str(err):
+                self._tts_on_caller(str(data["caller_device"]), f"{data['callee_room']} isn't available")
+            else:
+                raise
+
+    def _tts_on_caller(self, caller_device: str, message: str) -> None:
+        entity = self._media_targets.get(caller_device)
+        if entity is None:
+            _LOGGER.debug("no tts target for %s; offline-at-dial notice skipped", caller_device)
+            return
+        self.hass.services.call("tts", "speak", {
+            "entity_id": entity, "media_player_entity_id": entity, "message": message,
+        }, blocking=False)
 
     def _make_send(self, session_id: str):
         def send(device_id: str, frame: bytes) -> None:

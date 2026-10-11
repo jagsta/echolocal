@@ -297,9 +297,29 @@ class CallStateMachine:
             ep.state = STATE_IDLE  # media resume orchestration happens in HA layer
         self.sessions.pop(session.session_id, None)
         self._reconnect_target = None
+        # busy flags are call-scoped: once the call they were refused against
+        # is gone, they must not leak onto the next ring (e.g. a device that
+        # was rejected as a caller must be able to receive a call after the
+        # busy session ends).
+        for d in session.device_ids():
+            self._busy_rejects.pop(d, None)
         for d in session.device_ids():
             self.emit("end_chime", {"to_device": d, "reason": reason})
         self.emit("teardown", {"session": session.session_id, "reason": reason, "at": at})
+
+    def set_muted(self, session_id: str, device_id: str, muted: bool) -> None:
+        """HA-side mute visibility (D-DI-6): echoes the device-side mute
+        toggle (card 2 wiring.ToggleMute → TextSensor) into the session so
+        HA state always shows it. Transmit enforcement is device-side.
+        """
+        session = self._require(session_id)
+        ep = session.endpoint(device_id)
+        if ep is None:
+            raise CallError(f"{device_id} is not in session {session_id}")
+        if session.state != SESSION_ACTIVE:
+            raise CallError("mute is only meaningful in-call (D-DI-6)")
+        ep.muted = muted
+        self.emit("mute_changed", {"session": session_id, "device": device_id, "muted": muted})
 
     def _require(self, session_id: str) -> Session:
         session = self.sessions.get(session_id)
