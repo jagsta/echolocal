@@ -22,8 +22,14 @@ PLATFORMS: list[str] = ["select"]  # call-policy config entity
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
-    if DOMAIN not in hass.services:
-        return True
+    # Register services eagerly from YAML setup: with config_flow false HA
+    # creates no config entry unless one is set up, and the acceptance probe
+    # of card 5.5 is that the services are callable after restart.
+    from .runtime import DropInRuntime
+
+    runtime = DropInRuntime(hass, None)
+    await runtime.async_setup()
+    hass.data[DOMAIN]["yaml"] = runtime
     return True
 
 
