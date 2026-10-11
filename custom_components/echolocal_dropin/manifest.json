@@ -1,0 +1,13 @@
+{
+  "domain": "echolocal_dropin",
+  "name": "EchoLocal Drop-In Intercom",
+  "codeowners": ["@jagsta"],
+  "config_flow": false,
+  "dependencies": ["media_player"],
+  "documentation": "https://github.com/jagsta/echolocal",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/jagsta/echolocal/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

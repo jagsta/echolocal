@@ -1,0 +1,43 @@
+{
+  "domain": "echolocal_dropin",
+  "name": "EchoLocal Drop-In Intercom",
+  "services": {
+    "call": {
+      "name": "Call",
+      "description": "Starts a drop-in intercom call (D-DI-3 ring-first, D-DI-4 HA call-state owner).",
+      "fields": {
+        "caller_device": {"name": "Caller device", "description": "echod device-id of the caller."},
+        "caller_room": {"name": "Caller room", "description": "Room name of the caller."},
+        "callee_device": {"name": "Callee device", "description": "echod device-id of the callee."},
+        "callee_room": {"name": "Callee room", "description": "Room name being called."},
+        "session_id": {"name": "Session id", "description": "Optional explicit session id."}
+      }
+    },
+    "accept": {
+      "name": "Accept",
+      "description": "Callee accepts after the enforced 3-second ring floor (D-DI-3).",
+      "fields": {
+        "session_id": {"name": "Session id"},
+        "device": {"name": "Device", "description": "echod device-id accepting the call."}
+      }
+    },
+    "hangup": {
+      "name": "Hang up",
+      "description": "Ends the call; end chime both ends, media resumes (D-DI-5).",
+      "fields": {
+        "session_id": {"name": "Session id"},
+        "device": {"name": "Device", "description": "Optional origin device."}
+      }
+    },
+    "set_permission": {
+      "name": "Set permission",
+      "description": "Sets a per-pair permission (source->target); unset pairs default allow-household (D-DI-3). silent_connect reserved, unused v1.",
+      "fields": {
+        "source": {"name": "Source room"},
+        "target": {"name": "Target room"},
+        "mode": {"name": "Mode", "description": "allow_household, allow, or deny."},
+        "silent_connect": {"name": "Silent connect (reserved)", "description": "Unused in v1."}
+      }
+    }
+  }
+}

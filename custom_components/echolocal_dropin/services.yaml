@@ -1,0 +1,65 @@
+call:
+  fields:
+    caller_device:
+      required: true
+      selector:
+        text:
+    caller_room:
+      required: true
+      selector:
+        text:
+    callee_device:
+      required: true
+      selector:
+        text:
+    callee_room:
+      required: true
+      selector:
+        text:
+    session_id:
+      required: false
+      selector:
+        text:
+accept:
+  fields:
+    session_id:
+      required: true
+      selector:
+        text:
+    device:
+      required: true
+      selector:
+        text:
+hangup:
+  fields:
+    session_id:
+      required: true
+      selector:
+        text:
+    device:
+      required: false
+      selector:
+        text:
+set_permission:
+  fields:
+    source:
+      required: true
+      selector:
+        text:
+    target:
+      required: true
+      selector:
+        text:
+    mode:
+      required: true
+      selector:
+        select:
+          options:
+            - allow_household
+            - allow
+            - deny
+    # silent_connect: reserved schema field, unused in v1 (D-DI-3).
+    silent_connect:
+      required: false
+      selector:
+        boolean:
