@@ -4,6 +4,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	esphome "github.com/ygelfand/go-esphome-device"
 )
 
 // TestTurnTeardownOnEveryEndPath asserts the round-1 review fix: the shared
@@ -127,5 +129,40 @@ func TestReleaseTurnDoubleCloseGuard(t *testing.T) {
 	}
 	if i.turnOpen {
 		t.Fatal("turnOpen should be cleared after first release")
+	}
+}
+
+// TestRealSatellitePathNoNilDeref pins the round-2 (vs never assigned) review
+// fix: Accept and releaseTurn must run against a REAL VoiceSatellite — no
+// turnOps stub short-circuiting releaseTurn before it reaches i.vs — without
+// a nil dereference. A disconnected satellite returns ErrNoSubscriber from
+// every turn call, which is exactly what a no-connection unit test wants.
+func TestRealSatellitePathNoNilDeref(t *testing.T) {
+	i := &Intercom{session: New(30 * time.Minute)}
+	i.vs = &esphome.VoiceSatellite{} // real satellite, no connection
+	// turnOps deliberately nil: the real EndAudio→StopTurn path must run.
+
+	// Ring past the floor, then Accept. StartTurn fails (no subscriber), so
+	// wiring.Accept must fall through to End("dropped") — exercising both
+	// the StartTurn deref and the subsequent releaseTurn teardown.
+	start := time.Now()
+	i.session.clock = func() time.Time { return start }
+	if !i.session.Ring() {
+		t.Fatal("ring refused")
+	}
+	i.session.clock = func() time.Time { return start.Add(RingFloor + time.Second) }
+	// wiring.Accept dereferences i.vs.StartTurn (no subscriber → error), then
+	// Ends with reason "dropped"; without watchTurnRelease this test stays
+	// deterministic, so release Turn is exercised directly below.
+	i.session.Changed = append(i.session.Changed, func(from, to State) {})
+	i.Accept() // must NOT panic on the real satellite
+
+	// Force the teardown path directly against the real satellite.
+	i.mu.Lock()
+	i.turnOpen = true
+	i.mu.Unlock()
+	i.releaseTurn() // must call i.vs.EndAudio then i.vs.StopTurn without panicking
+	if i.turnOpen {
+		t.Fatal("turnOpen not cleared by real-satellite releaseTurn")
 	}
 }

@@ -99,6 +99,7 @@ func (i *Intercom) Entities() []esphome.Entity { return []esphome.Entity{i.statu
 // wire installs every subscription exactly once at startup.
 func (i *Intercom) wire() {
 	vs := voice.Get().VS()
+	i.vs = vs // shared satellite for Accept (StartTurn) and releaseTurn
 
 	s := i.session
 
