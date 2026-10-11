@@ -41,6 +41,7 @@ func TestSavedKeysKeepTheirLayout(t *testing.T) {
 		"feedback",
 		"home",
 		"idle",
+		"intercom",
 		"media",
 		"microphone",
 		"network",

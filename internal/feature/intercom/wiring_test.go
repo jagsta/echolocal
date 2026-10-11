@@ -6,6 +6,8 @@ import (
 	"time"
 
 	esphome "github.com/ygelfand/go-esphome-device"
+
+	"github.com/ygelfand/echolocal/internal/feature/voice"
 )
 
 // TestTurnTeardownOnEveryEndPath asserts the round-1 review fix: the shared
@@ -164,5 +166,19 @@ func TestRealSatellitePathNoNilDeref(t *testing.T) {
 	i.releaseTurn() // must call i.vs.EndAudio then i.vs.StopTurn without panicking
 	if i.turnOpen {
 		t.Fatal("turnOpen not cleared by real-satellite releaseTurn")
+	}
+}
+
+// TestWireAssignsVS pins the assignment itself (round-3 secondary): wire() must
+// set i.vs from voice.Get().VS(), so a future regression that removes the
+// assignment is caught here rather than only in Accept/releaseTurn runtime paths.
+func TestWireAssignsVS(t *testing.T) {
+	i := &Intercom{session: New(30 * time.Minute), status: &esphome.TextSensor{}}
+	i.wire()
+	if i.vs == nil {
+		t.Fatal("wire() left i.vs nil — Accept/releaseTurn would panic at runtime")
+	}
+	if i.vs != voice.Get().VS() {
+		t.Fatal("i.vs is not the shared satellite from voice.Get().VS()")
 	}
 }

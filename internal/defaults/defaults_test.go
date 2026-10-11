@@ -17,6 +17,8 @@ func TestBiscuitIsWhatItAlwaysWas(t *testing.T) {
 		MinCores:    2,
 
 		VisualizerLift: 10,
+
+		IntercomMaxMinutes: 30,
 	}
 	if got != want {
 		t.Errorf("biscuit's defaults are %+v, want %+v", got, want)
