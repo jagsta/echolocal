@@ -16,6 +16,7 @@ type Config struct {
 	Volume     Volume     `json:"volume"`
 	Microphone Microphone `json:"microphone"`
 	Ring       Ring       `json:"ring"`
+	Intercom   Intercom   `json:"intercom"`
 	Diag       Diag       `json:"diag"`
 }
 
@@ -28,6 +29,7 @@ func Defaults() Config {
 		Volume:     defaultVolume(),
 		Microphone: defaultMicrophone(d),
 		Ring:       defaultRing(d),
+		Intercom:   defaultIntercom(d),
 		Diag:       defaultDiag(d),
 	}
 	c.Visual.Label = layout.Manufacturer
@@ -50,6 +52,7 @@ func (w Writer) Speaker() SpeakerWriter       { return SpeakerWriter{st: w.st} }
 func (w Writer) Volume() VolumeWriter         { return VolumeWriter{st: w.st} }
 func (w Writer) Microphone() MicrophoneWriter { return MicrophoneWriter{st: w.st} }
 func (w Writer) Ring() RingWriter             { return RingWriter{st: w.st} }
+func (w Writer) Intercom() IntercomWriter     { return IntercomWriter{st: w.st} }
 func (w Writer) Diag() DiagWriter             { return DiagWriter{st: w.st} }
 
 type Labelled interface{ Label() string }

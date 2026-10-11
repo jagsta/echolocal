@@ -12,10 +12,15 @@ const (
 	StreamAlerts   = schema.StreamAlerts
 	StreamVoice    = schema.StreamVoice
 	StreamFeedback = schema.StreamFeedback
+
+	// StreamIntercom carries drop-in call audio on the output mixer's stream
+	// bus, alongside the other five lanes (D-DI-4 v1: the peer's PCM arrives as
+	// VoiceAssistantAudio frames and is pushed here for playback).
+	StreamIntercom = Stream("intercom")
 )
 
 func Streams() []Stream {
-	return []Stream{StreamMain, StreamMedia, StreamVoice, StreamAlerts, StreamFeedback}
+	return []Stream{StreamMain, StreamMedia, StreamVoice, StreamAlerts, StreamFeedback, StreamIntercom}
 }
 
 type Volume struct {
@@ -23,6 +28,7 @@ type Volume struct {
 	Voice    int `json:"voice"`
 	Alerts   int `json:"alerts"`
 	Feedback int `json:"feedback"`
+	Intercom int `json:"intercom"`
 }
 
 const DefaultLevel = 100
@@ -33,6 +39,7 @@ func defaultVolume() Volume {
 		Voice:    DefaultLevel,
 		Alerts:   DefaultLevel,
 		Feedback: DefaultLevel,
+		Intercom: DefaultLevel,
 	}
 }
 
@@ -46,6 +53,8 @@ func (v Volume) Level(s Stream) int {
 		return v.Alerts
 	case StreamFeedback:
 		return v.Feedback
+	case StreamIntercom:
+		return v.Intercom
 	}
 	return DefaultLevel
 }
@@ -63,6 +72,8 @@ func (w VolumeWriter) Level(s Stream, level int) error {
 			c.Volume.Alerts = level
 		case StreamFeedback:
 			c.Volume.Feedback = level
+		case StreamIntercom:
+			c.Volume.Intercom = level
 		}
 	})
 }

@@ -17,6 +17,8 @@ type Set struct {
 	MinCores int
 
 	VisualizerLift int
+
+	IntercomMaxMinutes int
 }
 
 var biscuit = Set{
@@ -32,6 +34,8 @@ var biscuit = Set{
 	MinCores: 2,
 
 	VisualizerLift: 10,
+
+	IntercomMaxMinutes: 30,
 }
 
 func show5() Set {
