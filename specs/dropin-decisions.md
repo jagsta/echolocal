@@ -40,5 +40,6 @@ ACCEPTED RISKS / trivial paths (no card): offline-at-dial → immediate TTS "kit
 Every card carries a criteria block (grep-able CHECK or pytest on the Hermes venv python absolute path per hil-framework convention); protocol-level cards (does go-esphome-device support continuous sideband audio?) must be resolved by READING the pilot device's echod/go-esphome-device before session-layer cards are authored — D-DI-4's relay shape depends on the answer.
 
 ## Open items (Jag, non-blocking but tracked)
-- Confirm how many Gen 2 Dots are available; buy 2nd unit for end-to-end pair testing.
+- Confirm how many Gen 2 Dots are available; buy 2nd unit for end-to-end pair testing. HARDWARE CONTEXT (11 Oct): the existing live pilot is a biscuit on FireOS 6 (not 5.1) — echod runs on it, so assume FireOS 6 as the reference stack for debugging. PROCUREMENT RULE for unit #2: check FireOS version BEFORE letting the device online; unlock guides are firmware-version-sensitive — unlock over USB before first boot if possible.
+- Gen 3 (D9N29T) owned but NOT on the drop-in critical path: an echod port to Gen 3 (different mic/loopback ALSA layout, unverified DAC-loopback AEC reference, FireOS 6 delta) is a separate future project, not a v1 enabler; the D9N29T unlock route is JUL14N's hassmic project, a different satellite stack. Do NOT unlock the Gen 3 as part of this project.
 - Upstream etiquette: feature proposal to ygelfand (Discord linked in repo) once the fork has a working prototype — decide then whether we PR upstream or keep fork-local.
