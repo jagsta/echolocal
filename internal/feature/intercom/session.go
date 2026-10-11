@@ -13,16 +13,16 @@
 // Wake-word suppression (D-DI-5) is DELIBERATE POLICY, implemented at two
 // intercept points, not left to go-esphome-device's ErrTurnInProgress accident:
 //
-//   1. INTERCEPT POINT A (wake path, before StartTurn): wake detection is
-//      paused entirely while intercom state != idle — intercom registers a
-//      pause with internal/feature/detect (the seam the webrtc "call" feature
-//      already uses via PausesWake). The detect engine's OnDetect therefore
-//      never hands us a slot, and no wake StartTurn is even attempted.
-//   2. INTERCEPT POINT B (button path, before StartTurn/Turn.Start): the
-//      physical Action button tap calls voice.Get().Action() → Satellite
-//      Start → turn.Start; intercom registers a guard via voice.RegisterGuard
-//      that is checked before any turn starts (wired in feature/voice). Same
-//      guarantee: no StartTurn while a call owns the turn.
+//  1. INTERCEPT POINT A (wake path, before StartTurn): wake detection is
+//     paused entirely while intercom state != idle — intercom registers a
+//     pause with internal/feature/detect (the seam the webrtc "call" feature
+//     already uses via PausesWake). The detect engine's OnDetect therefore
+//     never hands us a slot, and no wake StartTurn is even attempted.
+//  2. INTERCEPT POINT B (button path, before StartTurn/Turn.Start): the
+//     physical Action button tap calls voice.Get().Action() → Satellite
+//     Start → turn.Start; intercom registers a guard via voice.RegisterGuard
+//     that is checked before any turn starts (wired in feature/voice). Same
+//     guarantee: no StartTurn while a call owns the turn.
 //
 // If both intercepts somehow miss, go-esphome-device still refuses a second
 // StartTurn (ErrTurnInProgress) — the library accident is the backstop, not
@@ -252,10 +252,14 @@ func (s *Session) End(reason string) bool {
 }
 
 // armKill schedules the kill-switch (device self-ends call+turn at expiry,
-// D-DI-5). killTimer is swappable for tests.
+// D-DI-5). killTimer is swappable for tests. The stopKill swap happens under
+// s.mu: End() reads stopKill under the same lock, and the kill timer fires on
+// its own goroutine, so an unlocked write races with a concurrent End.
 func (s *Session) armKill(d time.Duration) {
+	s.mu.Lock()
 	s.stopKill()
 	s.stopKill = s.killTimer(d, func() { s.End("expired") })
+	s.mu.Unlock()
 }
 
 func afterFunc(d time.Duration, fire func()) (stop func()) {

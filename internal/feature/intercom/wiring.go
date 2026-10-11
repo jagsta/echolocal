@@ -56,8 +56,14 @@ type Intercom struct {
 
 	unlistenMic func()
 
-	mu      sync.Mutex
-	muted   bool // physical mic transmit off in-call (D-DI-6)
+	mu       sync.Mutex
+	muted    bool // physical mic transmit off in-call (D-DI-6)
+	turnOpen bool
+
+	// turnOps is swappable so tests can release the turn without a live
+	// satellite; nil wires the real VoiceSatellite EndAudio/StopTurn.
+	turnOps func()
+
 	streams []<-chan []int16
 }
 
@@ -124,6 +130,15 @@ func (i *Intercom) wire() {
 			}
 		}
 	})
+	// TEARDOWN: on every transition to Idle from an active state — hangup
+	// (button), expired (kill-switch), dropped (turn open failed) — release
+	// the shared VoiceSatellite turn. This is keyed on the state transition,
+	// NOT on Ended: End() skips Ended for reason "hangup" (it is user-driven),
+	// and go-esphome-device clears its turnOpen boolean ONLY on StopTurn or a
+	// Run end/error event — a leaked turn bricks the assistant path with
+	// ErrTurnInProgress once wake suppression lifts at Idle.
+	i.watchTurnRelease(i.releaseTurn)
+
 	s.Ended = append(s.Ended, func(reason string) {
 		slog.Info("intercom call self-ended", "reason", reason)
 	})
@@ -178,6 +193,45 @@ func (i *Intercom) take(e buttons.Event) bool {
 	}
 }
 
+// watchTurnRelease appends a Changed subscriber that fires teardown on every
+// transition into Idle from an active state. Swappable for tests.
+func (i *Intercom) watchTurnRelease(fn func()) {
+	i.session.Changed = append(i.session.Changed, func(from, to State) {
+		if from != Idle && to == Idle {
+			fn()
+		}
+	})
+}
+
+// releaseTurn ends the call's audio data path and closes the shared turn
+// exactly once per accepted turn (double-close guarded). EndAudio first — the
+// probe findings (specs/dropin-probe-findings.md) spell it out as the required
+// hang-up binding — then StopTurn, which is the only library call that clears
+// turnOpen.
+func (i *Intercom) releaseTurn() {
+	i.mu.Lock()
+	if !i.turnOpen {
+		i.mu.Unlock()
+		slog.Debug("intercom turn release skipped", "reason", "not open")
+		return
+	}
+	i.turnOpen = false
+	i.mu.Unlock()
+
+	if i.turnOps != nil {
+		i.turnOps()
+		slog.Info("intercom turn released (stub)")
+		return
+	}
+	if err := i.vs.EndAudio(); err != nil {
+		slog.Warn("intercom end audio failed", "err", err)
+	}
+	if err := i.vs.StopTurn(); err != nil {
+		slog.Warn("intercom stop turn failed", "err", err)
+	}
+	slog.Info("intercom turn released")
+}
+
 // Accept connects when the ring floor has elapsed — the device refuses an
 // early connect regardless of what the network asks (D-DI-3) — then opens the
 // perpetual turn, which is what makes wake-word turns structurally impossible.
@@ -192,7 +246,11 @@ func (i *Intercom) Accept() {
 	if err := i.vs.StartTurn("", nil); err != nil {
 		slog.Error("intercom turn open failed", "err", err)
 		s.End("dropped")
+		return
 	}
+	i.mu.Lock()
+	i.turnOpen = true
+	i.mu.Unlock()
 }
 
 // ToggleMute flips mic transmit off/on in-call (D-DI-6); mute keeps the turn
