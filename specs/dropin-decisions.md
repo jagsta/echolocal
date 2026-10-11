@@ -39,6 +39,11 @@ ACCEPTED RISKS / trivial paths (no card): offline-at-dial → immediate TTS "kit
 ## D-DI-7 — Verification posture
 Every card carries a criteria block (grep-able CHECK or pytest on the Hermes venv python absolute path per hil-framework convention); protocol-level cards (does go-esphome-device support continuous sideband audio?) must be resolved by READING the pilot device's echod/go-esphome-device before session-layer cards are authored — D-DI-4's relay shape depends on the answer.
 
+## Roadmap (post-v1, not authored as cards yet)
+- **3-way drop-ins** (Jag, 11 Oct): a third device joins an existing call — multi-party star relay in HA (one session, N endpoints, not pairwise bridge), busy-reject semantics extended (3rd-device invite to an active call = "join offer" to participants rather than plain busy), join/leave chime + LED states. CONSTRAINT to honor in cards 2/3/5 NOW: the session state machine and relay topology must not hard-code "exactly two endpoints" — keep the endpoint list a list (add-participant operation, one-relay-to-N fan-out), so 3-way becomes additive, not a refactor. The probe's "one perpetual turn per device" limitation still bounds each device to one audio stream regardless of party count.
+- Direct P2P data path swap (D-DI-4 v2) + open-duplex gated on pilot ERLE measurements.
+- v2 protocol extension in go-esphome-device (only needed once P2P lands).
+
 ## Open items (Jag, non-blocking but tracked)
 - Confirm how many Gen 2 Dots are available; buy 2nd unit for end-to-end pair testing. HARDWARE CONTEXT (11 Oct): the existing live pilot is a biscuit on FireOS 6 (not 5.1) — echod runs on it, so assume FireOS 6 as the reference stack for debugging. PROCUREMENT RULE for unit #2: check FireOS version BEFORE letting the device online; unlock guides are firmware-version-sensitive — unlock over USB before first boot if possible.
 - Gen 3 (D9N29T) owned but NOT on the drop-in critical path: an echod port to Gen 3 (different mic/loopback ALSA layout, unverified DAC-loopback AEC reference, FireOS 6 delta) is a separate future project, not a v1 enabler; the D9N29T unlock route is JUL14N's hassmic project, a different satellite stack. Do NOT unlock the Gen 3 as part of this project.
