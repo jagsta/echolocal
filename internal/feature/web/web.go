@@ -41,7 +41,10 @@ func Get() *libweb.Server { return get() }
 type server struct{ *libweb.Server }
 
 func (s *server) Run(ctx context.Context) error {
-	if err := firewall.Open(firewall.Web, Port); err != nil {
+	// Card 11: Open is flush-then-add per call, so opening Web with BOTH ports
+	// here (not via the TLS component's own Open) avoids the last-writer-wins
+	// race that drops :443 when the web server starts after the TLS listener.
+	if err := firewall.Open(firewall.Web, Port, TLSPort); err != nil {
 		slog.Error("opening the web port failed", "port", Port, "err", err)
 	}
 	return s.Server.Run(ctx)
