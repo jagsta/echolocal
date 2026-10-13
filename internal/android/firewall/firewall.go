@@ -18,9 +18,10 @@ const (
 	Sendspin = "ECHOLOCAL_SENDSPIN"
 	Web      = "ECHOLOCAL_WEB"
 	Cast     = "ECHOLOCAL_CAST"
+	CallUDP  = "ECHOLOCAL_CALLUDP"
 )
 
-var All = []string{API, ADB, Sendspin, Web, Cast}
+var All = []string{API, ADB, Sendspin, Web, Cast, CallUDP}
 
 const iface = "wlan0"
 
@@ -28,6 +29,10 @@ var ready sync.Mutex
 
 func acceptRule(chain string, port int) []string {
 	return []string{chain, "-i", iface, "-p", "tcp", "--dport", fmt.Sprint(port), "-j", "ACCEPT"}
+}
+
+func udpRangeRule(chain string, lo, hi int) []string {
+	return []string{chain, "-i", iface, "-p", "udp", "--dport", fmt.Sprintf("%d:%d", lo, hi), "-j", "ACCEPT"}
 }
 
 func jumpRule(chain string) []string {
@@ -38,6 +43,23 @@ func Open(chain string, ports ...int) error {
 	ready.Lock()
 	defer ready.Unlock()
 	return open(chain, ports)
+}
+
+// UDPRange accept-blocks a contiguous UDP port window on a dedicated chain.
+// It follows the same flush-then-add semantics as open() but with a
+// multiport range instead of single TCP ports, so a chain's contents stay
+// fully owned by whoever last opened it (card-11 last-writer-wins shape).
+func OpenUDPRange(chain string, lo, hi int) error {
+	ready.Lock()
+	defer ready.Unlock()
+
+	if err := ensure(chain); err != nil {
+		return err
+	}
+	if err := iptablesRun("-F", chain); err != nil {
+		return err
+	}
+	return iptablesRun(append([]string{"-A"}, udpRangeRule(chain, lo, hi)...)...)
 }
 
 func open(chain string, ports []int) error {

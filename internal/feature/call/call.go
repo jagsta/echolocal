@@ -45,6 +45,8 @@ func init() {
 		func() *componentCall { return &componentCall{Get()} },
 		sharedcomponent.Order(62),
 	)
+	// Card 14: arm the firewall accept for pion's ephemeral ICE UDP ports.
+	armICEPorts()
 	// Card 7 (D-DI-8): the phone PWA reaches the same handlers through the
 	// pairing gate; Dot-to-Dot traffic passes through unwrapped.
 	gate := newPhoneGate(Get())
