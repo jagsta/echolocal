@@ -37,4 +37,9 @@ var (
 		func() *storage.Store[Config] { return store().Store },
 		func(c *Config) *Microphone { return &c.Microphone },
 	)
+
+	IntercomSection = storage.Bind(
+		func() *storage.Store[Config] { return store().Store },
+		func(c *Config) *Intercom { return &c.Intercom },
+	)
 )

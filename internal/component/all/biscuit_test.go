@@ -125,6 +125,7 @@ var registered = []string{
 	"voice_resampling",
 	"volume_alerts",
 	"volume_feedback",
+	"volume_intercom",
 	"volume_media",
 	"volume_voice",
 	"wake_assistant_1",

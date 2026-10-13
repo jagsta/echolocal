@@ -46,6 +46,9 @@ func init() {
 	// Order 61: after voice (30) and detect (40) so their seams exist, after
 	// the webrtc call ring (21) but on the Device phase like them.
 	component.Register(sharedcomponent.Device, Get, sharedcomponent.Order(61))
+	// Card 7 (D-DI-8): the phone pairing-key setting row; registering it from
+	// this init pulls it into the ctl settings registry on every build.
+	component.Register(sharedcomponent.Device, PairingSettings, sharedcomponent.Order(63))
 }
 
 type Intercom struct {

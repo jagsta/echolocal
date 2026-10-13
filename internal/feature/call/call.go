@@ -51,7 +51,7 @@ func init() {
 	web.Handle("POST /call/offer", gate.PhoneOfferHandler())
 	web.Handle("POST /call/answer", gate.PhoneAnswerHandler())
 	web.Handle("POST /call/end", gate.PhoneEndHandler())
-	web.Handle("GET /call/phone-dropin", http.FileServer(http.FS(phoneDropinFS)))
+	web.Handle("GET /call/phone-dropin", http.StripPrefix("/call/phone-dropin", http.FileServer(http.FS(phoneDropinFS))))
 	detect.PauseWhen(Get().PausesWake)
 	buttons.Get().Take(take)
 }
