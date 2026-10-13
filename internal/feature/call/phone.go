@@ -17,7 +17,9 @@ const PhoneSourcePrefix = "phone:"
 
 // IsPhoneSource reports whether a caller id is a phone/web peer id
 // ("phone:<name>", per D-DI-8c).
-func IsPhoneSource(id string) bool { return len(id) >= len(PhoneSourcePrefix) && id[:len(PhoneSourcePrefix)] == PhoneSourcePrefix }
+func IsPhoneSource(id string) bool {
+	return len(id) >= len(PhoneSourcePrefix) && id[:len(PhoneSourcePrefix)] == PhoneSourcePrefix
+}
 
 // PhoneDisplayName strips the "phone:" prefix for the callee's ring
 // announcement ("phone:jag" announces as "jag").

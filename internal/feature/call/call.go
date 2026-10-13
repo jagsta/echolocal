@@ -1,6 +1,7 @@
 package call
 
 import (
+	"net/http"
 	"sync"
 
 	sharedcall "github.com/ygelfand/libcountertop/pkg/media/call"
@@ -44,9 +45,13 @@ func init() {
 		func() *componentCall { return &componentCall{Get()} },
 		sharedcomponent.Order(62),
 	)
-	web.Handle("POST /call/offer", Get().OfferHandler())
-	web.Handle("POST /call/answer", Get().AnswerHandler())
-	web.Handle("POST /call/end", Get().EndHandler())
+	// Card 7 (D-DI-8): the phone PWA reaches the same handlers through the
+	// pairing gate; Dot-to-Dot traffic passes through unwrapped.
+	gate := newPhoneGate(Get())
+	web.Handle("POST /call/offer", gate.PhoneOfferHandler())
+	web.Handle("POST /call/answer", gate.PhoneAnswerHandler())
+	web.Handle("POST /call/end", gate.PhoneEndHandler())
+	web.Handle("GET /call/phone-dropin", http.FileServer(http.FS(phoneDropinFS)))
 	detect.PauseWhen(Get().PausesWake)
 	buttons.Get().Take(take)
 }

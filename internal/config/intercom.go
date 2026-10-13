@@ -10,6 +10,12 @@ type Intercom struct {
 	Call string `json:"call_effect"`
 
 	MaxMinutes int `json:"max_minutes"`
+
+	// PhoneKey is the pairing key a phone/web caller (D-DI-8) must present
+	// with its signalling POSTs. Empty means pairing is OFF: phone-sourced
+	// offers are rejected fail-closed (card 7, specs/phone-dropin-webrtc.md).
+	// Dot-to-Dot calls (ids without the "phone:" prefix) are unaffected.
+	PhoneKey string `json:"phone_key,omitempty"`
 }
 
 const (
@@ -39,4 +45,8 @@ func (w IntercomWriter) Call(v string) error {
 
 func (w IntercomWriter) MaxMinutes(v int) error {
 	return w.st.Update(func(c *Config) { c.Intercom.MaxMinutes = v })
+}
+
+func (w IntercomWriter) PhoneKey(v string) error {
+	return w.st.Update(func(c *Config) { c.Intercom.PhoneKey = v })
 }

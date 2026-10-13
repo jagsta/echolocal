@@ -1,0 +1,156 @@
+<!doctype html>
+<!--
+  Phone drop-in client (card 7, D-DI-8, specs/phone-dropin-webrtc.md).
+  Works from the dot's web server (/call/phone-dropin) or from file:// —
+  no build step. Prompt the pairing key once, store it (localStorage when
+  available; in-memory on file:// where storage may throw).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EchoLocal drop-in</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; background: #181b1f; color: #eee;
+         display: flex; flex-direction: column; align-items: center;
+         justify-content: center; height: 100dvh; margin: 0; }
+  button { font-size: 1.4em; padding: 1em 2.6em; border-radius: 999px;
+           border: 0; margin: .4em; }
+  #call { background: #2e7d32; color: #fff; }
+  #call.active { background: #b71c1c; }
+  #mute { background: #37474f; color: #fff; }
+  #mute.off { background: #f9a825; color: #111; }
+  input { font-size: 1.1em; padding: .6em; border-radius: 8px; border: 1px solid #555;
+          width: min(320px, 80vw); margin: .3em; background: #22262b; color: #eee; }
+  #status { min-height: 1.4em; color: #9e9e9e; margin-top: .8em; }
+  .row { display: flex; gap: .3em; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h1 id="title">EchoLocal drop-in</h1>
+  <div class="row">
+    <input id="dot" placeholder="dot address (e.g. 192.168.10.99)" autocomplete="off">
+    <input id="key" placeholder="pairing key" autocomplete="off">
+  </div>
+  <button id="call">Call</button>
+  <div class="row">
+    <button id="mute" class="hidden">Mute</button>
+    <button id="hang" class="hidden">Hang up</button>
+  </div>
+  <div id="status"></div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const dot = $("dot"), key = $("key"), call = $("call"),
+        mute = $("mute"), hang = $("hang"), status = $("status");
+  let pc = null, mic = null, callId = null, timer = null;
+
+  const say = (m) => { status.textContent = m; };
+
+  try { // settings persist in the browser, not on file:// in some engines
+    dot.value = localStorage.getItem("dot") || dot.value;
+    key.value = localStorage.getItem("key") || key.value;
+  } catch (_) {}
+
+  const remember = () => {
+    try {
+      localStorage.setItem("dot", dot.value);
+      localStorage.setItem("key", key.value);
+    } catch (_) {}
+  };
+
+  // 30-minute idle auto-end, mirroring the callee max_minutes kill-switch.
+  const armTimer = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { say("ended automatically (30 min max)"); end(); },
+                      30 * 60 * 1000);
+  };
+
+  const post = async (path, extra) => {
+    const r = await fetch(`http://${dot.value}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({
+        call: callId, from: "phone:jag", name: "jag", pairing: key.value
+      }, extra))
+    });
+    if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+    return r;
+  };
+
+  async function start() {
+    if (!dot.value) { say("enter the dot's address first"); return; }
+    if (!key.value) { say("enter the pairing key first"); return; }
+    remember();
+    say("asking for the microphone…");
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) { say("microphone refused: " + e.message); return; }
+    callId = "phone-" + Math.random().toString(36).slice(2, 10);
+    pc = new RTCPeerConnection();
+    mic.getTracks().forEach((t) => pc.addTrack(t, mic));
+    pc.addTransceiver("audio", { direction: "recvonly" }); // hear the Dot
+    pc.ontrack = (e) => {
+      const a = new Audio();
+      a.srcObject = e.streams[0];
+      a.play();
+    };
+    pc.onconnectionstatechange = () => {
+      say("link: " + pc.connectionState);
+      if (["failed", "closed"].includes(pc.connectionState)) end();
+    };
+    say("ringing…");
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    // The answer SDP comes back in this same response (the dot holds the
+    // offer open until its callee accepts).
+    const r = await post("/call/offer", { sdp: pc.localDescription.sdp });
+    const answer = await r.json();
+    if (!answer.sdp) { say("no answer from the dot"); end(); return; }
+    await pc.setRemoteDescription(
+      { type: "answer", sdp: answer.sdp });
+    say("connected");
+    call.textContent = "Connected — tap to end";
+    call.classList.add("active");
+    mute.classList.remove("hidden");
+    hang.classList.remove("hidden");
+    call.disabled = true;
+    armTimer();
+  }
+
+  function end() {
+    clearTimeout(timer);
+    const id = callId;
+    callId = null;
+    if (pc) { try { pc.close(); } catch (_) {} pc = null; }
+    if (mic) { mic.getTracks().forEach((t) => t.stop()); mic = null; }
+    if (id && dot.value) {
+      post("/call/end", { reason: "hangup" }).catch(() => {});
+    }
+    say("idle");
+    call.textContent = "Call";
+    call.classList.remove("active");
+    call.disabled = false;
+    mute.classList.add("hidden");
+    hang.classList.add("hidden");
+    mute.textContent = "Mute";
+  }
+
+  call.addEventListener("click", () => {
+    start().catch((e) => { say(e.message); end(); });
+  });
+  hang.addEventListener("click", () => { say("hanging up"); end(); });
+  mute.addEventListener("click", () => {
+    if (!mic) return;
+    const t = mic.getTracks()[0];
+    t.enabled = !t.enabled;
+    mute.textContent = t.enabled ? "Mute" : "Unmute";
+    mute.classList.toggle("off", !t.enabled);
+  });
+  say("idle");
+})();
+</script>
+</body>
+</html>
