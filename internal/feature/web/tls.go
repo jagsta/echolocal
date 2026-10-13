@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,10 +88,24 @@ var routes routesT
 // Handle registers a route on BOTH listeners: libweb's server (unchanged,
 // Dot-to-Dot path) and the TLS mirror.
 func Handle(pattern string, h http.Handler) {
+	wrapped := CORS(pattern, h)
 	routes.mu.Lock()
-	routes.entries = append(routes.entries, routeEntry{pattern, CORS(pattern, h)})
+	routes.entries = append(routes.entries, routeEntry{pattern, wrapped})
 	routes.mu.Unlock()
-	Get().Handle(pattern, CORS(pattern, h))
+	Get().Handle(pattern, wrapped)
+	// Card 12 fix: method-prefixed patterns (e.g. "POST /call/offer") leave
+	// CORS preflights (OPTIONS) unhandled — they fall through to the catch-all
+	// and die as 404 before the middleware can answer. Mirror each wrapped
+	// cors route with an OPTIONS twin so the SAME middleware serves it; the
+	// middleware's method branch already answers 204 for allowed origins and
+	// 403 for disallowed ones.
+	if strings.HasPrefix(pattern, "POST ") && corsRoutes[pattern] {
+		pre := "OPTIONS " + strings.TrimPrefix(pattern, "POST ")
+		routes.mu.Lock()
+		routes.entries = append(routes.entries, routeEntry{pre, wrapped})
+		routes.mu.Unlock()
+		Get().Handle(pre, wrapped)
+	}
 }
 
 // mirror mux: same routes + the same root status page libweb mounts.
