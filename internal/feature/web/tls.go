@@ -41,14 +41,16 @@ import (
 )
 
 const (
-	TLSPort = 443
+	TLSPort      = 443
+	CertFilePath = layout.StateDir + "/tls.pem" // /data/misc/echolocal
+	CertKeyPath  = layout.StateDir + "/tls-key.pem"
 )
 
 var (
 	// Persisted self-signed pair lives under /data/misc/echolocal (layout.StateDir);
 	// vars so tests can redirect to temp dirs.
-	certPath = layout.StateDir + "/tls.pem"
-	keyPath  = layout.StateDir + "/tls-key.pem"
+	certPath = CertFilePath
+	keyPath  = CertKeyPath
 )
 
 var tlsGet = sync.OnceValue(func() *tlsListener { return newTLSListener() })
