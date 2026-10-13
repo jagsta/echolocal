@@ -8,6 +8,14 @@
     ?host=<ip-or-host>&room=<room-id>&name=<display-name>
   host is the target dot to dial; room/name are display only (the CALLEE dot
   announces itself). Absent or invalid host = friendly error, never dials.
+
+  Card 13: caller identity comes from a name the USER enters next to the
+  pairing key (persisted per host in localStorage like the key) — NEVER from
+  the URL's name= param, which is the ROOM display name (live finding: the
+  dot then matched a real peer named "Kitchen" — itself — and rang
+  from=Kitchen). Server-side the presented key still decides the identity
+  (D-DI-9b anti-spoof); the entered name is a hint only.
+
   NO directory logic: no rooms.json fetch, no localStorage room list, no dot
   discovery — the HA Lovelace tiles are the directory; each tile is a
   self-contained deep link with host/room/name baked in. NO auto-dial: the
@@ -46,6 +54,7 @@
   <h1>EchoLocal drop-in</h1>
   <div id="error" class="hidden"></div>
   <div class="row">
+    <input id="callerName" placeholder="your name" autocomplete="off">
     <input id="key" placeholder="pairing key" autocomplete="off">
   </div>
   <button id="call" class="hidden">Call</button>
@@ -57,7 +66,7 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const key = $("key"), call = $("call"),
+  const key = $("key"), callerName = $("callerName"), call = $("call"),
         mute = $("mute"), hang = $("hang"), status = $("status"), error = $("error");
   let pc = null, mic = null, callId = null, timer = null;
 
@@ -89,10 +98,14 @@
 
   try { // the pairing key persists in the browser, not on file:// in some engines
     if (!key.value) key.value = localStorage.getItem("key:" + host) || "";
+    if (!callerName.value) callerName.value = localStorage.getItem("name:" + host) || "";
   } catch (_) {}
 
   const remember = () => {
-    try { localStorage.setItem("key:" + host, key.value); } catch (_) {}
+    try {
+      localStorage.setItem("key:" + host, key.value);
+      localStorage.setItem("name:" + host, callerName.value); // card 13: who the dot should announce
+    } catch (_) {}
   };
 
   // 30-minute idle auto-end, mirroring the callee max_minutes kill-switch.
@@ -111,9 +124,14 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(Object.assign({
-        // D-DI-9b: name is claimed here but IGNORED server-side — the
-        // matched pairing key's entry IS the identity (anti-spoof).
-        call: callId, from: "phone:" + name, name: name, pairing: key.value
+        // Card 13: caller name is what the USER entered at pairing time
+        // (localStorage per host), never the URL's room name param — the
+        // URL name= is the ROOM display only (live caller-identity leak
+        // fix). D-DI-9b: the matched pairing key's entry REMAINS the
+        // authoritative identity server-side (anti-spoof); this name is a
+        // display hint that the key gate overrides.
+        call: callId, from: "phone:" + callerName.value.trim(),
+        name: callerName.value.trim(), pairing: key.value
       }, extra))
     });
     if (!r.ok) throw new Error(`${path} -> ${r.status}`);
@@ -140,6 +158,7 @@
   async function start() {
     if (!hostOk) { showFatal("invalid host"); return; }
     if (!key.value) { say("enter the pairing key first"); return; }
+    if (!callerName.value.trim()) { say("enter your name first"); return; }
     say("asking for the microphone…");
     try {
       mic = await navigator.mediaDevices.getUserMedia({ audio: true });

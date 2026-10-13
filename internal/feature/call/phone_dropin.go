@@ -25,13 +25,16 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	sharedcall "github.com/ygelfand/libcountertop/pkg/media/call"
 
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/web"
 )
 
 const phoneOfferWait = 60 * time.Second
@@ -50,12 +53,33 @@ type phoneEnvelope struct {
 type phoneGate struct {
 	offer *sharedcall.Calls
 
+	// card 13: injectable upstream handlers for tests; nil falls back to
+	// the offer component's own handlers.
+	upOffer  http.Handler
+	upAnswer http.Handler
+
 	mu      sync.Mutex
 	pending map[string]chan phoneEnvelope // call id -> answer SDP waiter
 }
 
 func newPhoneGate(c *sharedcall.Calls) *phoneGate {
 	return &phoneGate{offer: c, pending: map[string]chan phoneEnvelope{}}
+}
+
+// upstream resolves the handler the gate forwards to: an injected test
+// double when set, the configured Calls component otherwise.
+func (g *phoneGate) upstreamOffer() http.Handler {
+	if g.upOffer != nil {
+		return g.upOffer
+	}
+	return g.offer.OfferHandler()
+}
+
+func (g *phoneGate) upstreamAnswer() http.Handler {
+	if g.upAnswer != nil {
+		return g.upAnswer
+	}
+	return g.offer.AnswerHandler()
 }
 
 func (g *phoneGate) PhoneOfferHandler() http.Handler { return http.HandlerFunc(g.offerPhone) }
@@ -113,12 +137,43 @@ func (g *phoneGate) offerPhone(w http.ResponseWriter, r *http.Request) {
 	if !g.check(w, &m) {
 		return
 	}
+	// Card 13: identity = the pairing key's name, stripped of the phone:
+	// prefix for the upstream Name field (the matched entry's name IS the
+	// caller identity, D-DI-9b).
+	identity := m.From
+	if IsPhoneSource(identity) {
+		identity = PhoneDisplayName(identity)
+	}
 	if m.Call == "" || m.SDP == "" {
 		// Malformed phone offers get upstream's own "bad offer" reply.
 		r.Body = io.NopCloser(&resetReader{data: body})
-		g.offer.OfferHandler().ServeHTTP(w, r)
+		g.upstreamOffer().ServeHTTP(w, r)
 		return
 	}
+
+	// Card 13: the gate reached here means the pairing key matched, so the
+	// matched entry's name IS the caller identity. The body's from claim
+	// (the PWA used to send the room display name — live finding: the dot
+	// then matched a peer literally named "Kitchen" and rang from=Kitchen)
+	// is discarded: the request is re-fed upstream with from/name forced to
+	// the key-derived identity so the ring announces the caller, not a URL
+	// parameter, and the callee's session targets no discoverable peer.
+	m.From = PhoneSourcePrefix + identity
+	m.Name = identity
+	body, _ = json.Marshal(m)
+	r.Body = io.NopCloser(&resetReader{data: body})
+
+	// Card 13: force the answer loopback. Upstream offered() builds the
+	// callee session's s.addr purely from r.RemoteAddr (a plain struct
+	// field on the request this gate owns — writable before ServeHTTP), and
+	// post() constructs "http://<addr>/call/answer" from it. Leaving the
+	// remote address as the phone (or the NPM proxy) makes the callee POST
+	// its answer SDP to a host that cannot receive it: the live call failed
+	// with "step=answer err=status 404". Rewriting it to the dot's own web
+	// listener (http://127.0.0.1:<web.Port>, the libwe Server on Port 80)
+	// routes the callee's answer POST into this gate's answerPhone, which
+	// captures it into the pending offer held below.
+	r.RemoteAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(web.Port))
 
 	// Hold the offer open: upstream rings the Dot now (its workers carry
 	// the ring after the handler returns), and the callee's answer
@@ -136,7 +191,7 @@ func (g *phoneGate) offerPhone(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	captured := &captureWriter{ResponseWriter: w}
-	g.offer.OfferHandler().ServeHTTP(captured, r)
+	g.upstreamOffer().ServeHTTP(captured, r)
 	if captured.status != http.StatusAccepted {
 		// Upstream refused (busy, incoming off, malformed): replay its
 		// status to the phone.
@@ -182,7 +237,7 @@ func (g *phoneGate) answerPhone(w http.ResponseWriter, r *http.Request) {
 	}
 	// Not a phone session's loopback answer: Dot-to-Dot behaviour.
 	r.Body = io.NopCloser(&resetReader{data: body})
-	g.offer.AnswerHandler().ServeHTTP(w, r)
+	g.upstreamAnswer().ServeHTTP(w, r)
 }
 
 func (g *phoneGate) endPhone(w http.ResponseWriter, r *http.Request) {
