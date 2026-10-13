@@ -96,7 +96,11 @@
   };
 
   const post = async (path, extra) => {
-    const r = await fetch(`http://${host}${path}`, {
+    // Card 11: HTTPS signalling — the page may come from the secure HA origin,
+    // where Chromium blocks plain-HTTP fetches (mixed content). The dot serves
+    // the same routes over TLS on :443 with a self-signed cert: the first
+    // visit shows a certificate warning; proceed/accept once and it persists.
+    const r = await fetch(`https://${host}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(Object.assign({

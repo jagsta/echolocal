@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"sync"
 
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
@@ -20,6 +19,12 @@ func init() {
 		sharedcomponent.Network,
 		func() *server { return &server{Get()} },
 		sharedcomponent.Order(50),
+	)
+	// Card 11: the HTTPS mirror listener serves the same routes on :443.
+	component.Register(
+		sharedcomponent.Network,
+		func() *tlsListener { return TLSGet() },
+		sharedcomponent.Order(55),
 	)
 }
 
@@ -41,7 +46,5 @@ func (s *server) Run(ctx context.Context) error {
 	}
 	return s.Server.Run(ctx)
 }
-
-func Handle(pattern string, h http.Handler) { Get().Handle(pattern, h) }
 
 func Adopted() bool { return config.Get().API.Adopted }
