@@ -39,6 +39,8 @@ from .const import (
     STATE_IDLE,
     STATE_IN_CALL,
     STATE_RINGING,
+    is_phone_source,
+    phone_display_name,
 )
 
 
@@ -187,8 +189,11 @@ class CallStateMachine:
             return self._call_locked(session_id, caller, callee)
 
     def _call_locked(self, session_id: str, caller: Endpoint, callee: Endpoint) -> Session:
-        # D-DI-3 permission lookup on the source->target pair.
-        if not self.permissions.allowed(caller.room, callee.room):
+        # D-DI-3 permission lookup on the source->target pair. Phone peers
+        # (card 6, D-DI-8c) key by their "phone:<name>" identity instead of a
+        # room — they have no room; the id is the source.
+        source = caller.device_id if is_phone_source(caller.device_id) else caller.room
+        if not self.permissions.allowed(source, callee.room):
             self.emit("permission_denied", {"caller": caller.device_id, "callee": callee.device_id})
             raise CallError(f"call {caller.room} -> {callee.room} denied by permission map")
 
@@ -264,7 +269,16 @@ class CallStateMachine:
         self.sessions[session_id] = session
         self._busy_rejects.pop(caller.device_id, None)
         self._busy_rejects.pop(callee.device_id, None)
-        self.emit("ring", {"session": session_id, "callee": callee.device_id, "caller": caller.device_id})
+        # D-DI-8 card 6: phone peers carry their display name straight through
+        # to the ring announcement (no discovery dependence).
+        ring_data = {
+            "session": session_id,
+            "callee": callee.device_id,
+            "caller": caller.device_id,
+        }
+        if is_phone_source(caller.device_id):
+            ring_data["caller_name"] = phone_display_name(caller.device_id)
+        self.emit("ring", ring_data)
         return session
 
     def _busy_reject(self, caller: Endpoint, callee: Endpoint) -> None:

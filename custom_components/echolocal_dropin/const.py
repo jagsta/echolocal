@@ -43,3 +43,21 @@ SERVICE_CALL = "call"
 SERVICE_ACCEPT = "accept"
 SERVICE_HANGUP = "hangup"
 SERVICE_SET_PERMISSION = "set_permission"
+
+# D-DI-8 card 6: phone/web caller identity convention. An unregistered web
+# caller posts its offer with source id "phone:<display-name>"; it is treated
+# as an ordinary endpoint in the per-pair permission map (default
+# allow-household, D-DI-3) with no discovery dependence.
+PHONE_SOURCE_PREFIX = "phone:"
+
+
+def is_phone_source(source: str) -> bool:
+    """True when the caller id is a phone/web peer ("phone:<name>", D-DI-8c)."""
+    return isinstance(source, str) and source.startswith(PHONE_SOURCE_PREFIX)
+
+
+def phone_display_name(source: str) -> str:
+    """Callee-facing ring-announcement name for a phone peer ("phone:jag" -> "jag")."""
+    if not is_phone_source(source):
+        return source
+    return source[len(PHONE_SOURCE_PREFIX):]
