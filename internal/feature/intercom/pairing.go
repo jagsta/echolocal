@@ -13,6 +13,7 @@ package intercom
 
 import (
 	"log/slog"
+	"strings"
 	"sync"
 
 	setting "github.com/ygelfand/libcountertop/pkg/settings"
@@ -59,6 +60,23 @@ func PairingTable() *setting.Table[config.Intercom] {
 					return err
 				}
 				c.PhoneKeys = keys
+				return nil
+			},
+		},
+		// Card 15: cors_origins allowlist as a plain Text row (NOT secret —
+		// card 12's D-DI-9 field); empty string clears to nil (fail-closed),
+		// malformed entries are rejected at SET time.
+		setting.Setting[config.Intercom]{
+			Name: "cors_origins", Group: Group, Kind: setting.Text, Icon: "mdi:shield-link-variant",
+			Read: func(c *config.Intercom) string {
+				return strings.Join(c.CORSOrigins, ",")
+			},
+			Write: func(c *config.Intercom, v string) error {
+				origins, err := config.ParseCORSOriginsText(v)
+				if err != nil {
+					return err
+				}
+				c.CORSOrigins = origins
 				return nil
 			},
 		},
