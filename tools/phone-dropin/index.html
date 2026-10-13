@@ -9,6 +9,10 @@
   host is the target dot to dial; room/name are display only (the CALLEE dot
   announces itself). Absent or invalid host = friendly error, never dials.
 
+  Card 16: sig= is MANDATORY in tile deep links from the HA-hosted PWA —
+  omitting it makes the page POST at the dot directly, Chromium then hits the
+  dot's self-signed cert and kills the fetch (ERR_CERT_AUTHORITY_INVALID).
+
   Card 13: caller identity comes from a name the USER enters next to the
   pairing key (persisted per host in localStorage like the key) — NEVER from
   the URL's name= param, which is the ROOM display name (live finding: the
@@ -150,9 +154,13 @@
     key.value = key.value; // keep any stored key pre-filled
     // NO auto-dial (D-DI-9d): pre-select the room, show the big confirm
     // button; only an explicit tap starts the offer.
+    // Card 16: show WHICH ROOM will ring, plus the caller identity that will
+    // be announced — wife-friendliness: "Calling Kitchen as Jag", not just
+    // "ready".
+    const who = callerName.value.trim();
     call.textContent = "Call " + name;
     call.classList.remove("hidden");
-    say("ready to call " + name);
+    say("Calling " + name + (who ? " as " + who : ""));
   }
 
   async function start() {
@@ -176,7 +184,11 @@
       say("link: " + pc.connectionState);
       if (["failed", "closed"].includes(pc.connectionState)) end();
     };
-    say("ringing…");
+    // Card 16: the ringing screen names the room being dialled (and the
+    // announced caller), so whoever holds the phone sees WHICH room rings.
+    say("Calling " + name +
+        (callerName.value.trim() ? " as " + callerName.value.trim() : "") +
+        " — ringing…");
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     // The answer SDP comes back in this same response (the dot holds the
