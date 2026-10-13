@@ -62,15 +62,22 @@
   let pc = null, mic = null, callId = null, timer = null;
 
   // Card 9: the page is parameter-driven — no dot input box, no directory.
-  // ?host=<ip-or-host>&room=<room-id>&name=<display-name>
+  // ?host=<ip-or-host>&room=<room-id>&name=<display-name>[&sig=<origin>]
   const params = new URLSearchParams(location.search);
   const host = (params.get("host") || "").trim();
   const room = (params.get("room") || "").trim();
   const name = (params.get("name") || "").trim() || room || host;
+  // Card 12: sig is the signalling origin to POST /call/* against. Default
+  // (sig omitted) is the dot itself — same-origin fetch, direct-dot usage
+  // keeps working. Tiles on the HA-hosted PWA set
+  // sig=https://homeassistant.jagbains.org so the POST goes through the NPM
+  // proxy at :443, whose CORS allowlist admits this :8123 page origin.
+  const sig = (params.get("sig") || "").trim().replace(/\/+$/, "");
+  const sigOk = sig === "" || /^https:\/\/[A-Za-z0-9._-]+(:\d+)?$/.test(sig);
 
   // host must be a hostname/IP-ish token; anything that looks unsafe or is
   // missing means a friendly error and the page never dials (D-DI-9c).
-  const hostOk = /^[A-Za-z0-9._-]{1,253}$/.test(host);
+  const hostOk = /^[A-Za-z0-9._-]{1,253}$/.test(host) && sigOk;
 
   const say = (m) => { status.textContent = m; };
   const showFatal = (m) => {
@@ -100,7 +107,7 @@
     // where Chromium blocks plain-HTTP fetches (mixed content). The dot serves
     // the same routes over TLS on :443 with a self-signed cert: the first
     // visit shows a certificate warning; proceed/accept once and it persists.
-    const r = await fetch(`https://${host}${path}`, {
+    const r = await fetch(`${sig || "https://" + host}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(Object.assign({
@@ -117,7 +124,8 @@
     if (!hostOk) {
       showFatal("Link is missing a valid host. Open this page from a Home " +
                 "Assistant tile deep link of the form " +
-                "…/call/phone-dropin?host=<dot-address>&room=<room>&name=<label>.");
+                "…/call/phone-dropin?host=<dot-address>&room=<room>&name=<label>" +
+                "[&sig=<origin>].");
       return;
     }
     document.title = "Call " + name + " — EchoLocal";

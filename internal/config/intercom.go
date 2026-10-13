@@ -26,7 +26,19 @@ type Intercom struct {
 	// specs/phone-dropin-webrtc.md, D-DI-9b).
 	// Dot-to-Dot calls (ids without the "phone:" prefix) are unaffected.
 	PhoneKeys map[string]string `json:"phone_keys,omitempty"`
+
+	// CORSOrigins is the allowlist of page origins allowed to signal
+	// cross-origin to /call/* via the browser (card 12). Comma-separated
+	// scheme://host:port entries, no wildcards, parsed by
+	// ParseCORSOriginsText. Empty/absent = NO CORS headers at all
+	// (fail-closed): browser calls fail exactly as pre-card-12. Non-browser
+	// Dot-to-Dot clients send no Origin and are unaffected.
+	CORSOrigins []string `json:"cors_origins,omitempty"`
 }
+
+// DefaultCORSOrigin is the one known-good origin: the HA-hosted PWA page
+// origin (the NPM-proxied fetch origin is a different port).
+const DefaultCORSOrigin = "https://homeassistant.jagbains.org:8123"
 
 const (
 	DefaultRingEffect  = "Beacon"
@@ -69,11 +81,34 @@ func ParsePhoneKeysText(v string) (map[string]string, error) {
 	return keys, nil
 }
 
+// ParseCORSOriginsText parses the card-12 cors_origins allowlist from its
+// comma-separated Text form. Each entry must be scheme://host[:port] —
+// exactly one "//" separator, no wildcards, scheme http(s) only. Empty input
+// yields nil (fail-closed: no CORS at all).
+func ParseCORSOriginsText(v string) ([]string, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, nil
+	}
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		o := strings.TrimSpace(part)
+		scheme, rest, ok := strings.Cut(o, "://")
+		if !ok || (scheme != "http" && scheme != "https") || rest == "" ||
+			strings.Contains(rest, "//") || strings.ContainsAny(rest, "*?") {
+			return nil, fmt.Errorf("cors_origins entry %q must be scheme://host[:port]", part)
+		}
+		out = append(out, o)
+	}
+	return out, nil
+}
+
 func defaultIntercom(d defaults.Set) Intercom {
 	return Intercom{
-		Ring:       DefaultRingEffect,
-		Call:       DefaultCallEffect,
-		MaxMinutes: d.IntercomMaxMinutes,
+		Ring:        DefaultRingEffect,
+		Call:        DefaultCallEffect,
+		MaxMinutes:  d.IntercomMaxMinutes,
+		CORSOrigins: []string{DefaultCORSOrigin},
 	}
 }
 
@@ -93,4 +128,8 @@ func (w IntercomWriter) MaxMinutes(v int) error {
 
 func (w IntercomWriter) PhoneKeys(v map[string]string) error {
 	return w.st.Update(func(c *Config) { c.Intercom.PhoneKeys = v })
+}
+
+func (w IntercomWriter) CORSOrigins(v []string) error {
+	return w.st.Update(func(c *Config) { c.Intercom.CORSOrigins = v })
 }

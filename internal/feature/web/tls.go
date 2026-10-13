@@ -88,9 +88,9 @@ var routes routesT
 // Dot-to-Dot path) and the TLS mirror.
 func Handle(pattern string, h http.Handler) {
 	routes.mu.Lock()
-	routes.entries = append(routes.entries, routeEntry{pattern, h})
+	routes.entries = append(routes.entries, routeEntry{pattern, CORS(pattern, h)})
 	routes.mu.Unlock()
-	Get().Handle(pattern, h)
+	Get().Handle(pattern, CORS(pattern, h))
 }
 
 // mirror mux: same routes + the same root status page libweb mounts.
