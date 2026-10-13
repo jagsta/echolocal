@@ -1,9 +1,20 @@
 <!doctype html>
 <!--
-  Phone drop-in client (card 7, D-DI-8, specs/phone-dropin-webrtc.md).
-  Works from the dot's web server (/call/phone-dropin) or from file:// —
-  no build step. Prompt the pairing key once, store it (localStorage when
-  available; in-memory on file:// where storage may throw).
+  Phone drop-in dialer (cards 7+9, D-DI-8/D-DI-9c-d, specs/phone-dropin-webrtc.md,
+  specs/phone-dropin-ux-decisions.md). Served from the dot's web server
+  (/call/phone-dropin) or opened straight from file:// — no build step.
+
+  Card 9 (D-DI-9c/d): zero-discovery dialer driven ENTIRELY by query params —
+    ?host=<ip-or-host>&room=<room-id>&name=<display-name>
+  host is the target dot to dial; room/name are display only (the CALLEE dot
+  announces itself). Absent or invalid host = friendly error, never dials.
+  NO directory logic: no rooms.json fetch, no localStorage room list, no dot
+  discovery — the HA Lovelace tiles are the directory; each tile is a
+  self-contained deep link with host/room/name baked in. NO auto-dial: the
+  page pre-selects the room and shows a large confirm button; only the
+  explicit tap starts the offer. The pairing key is stored in localStorage
+  keyed per host (host->key) after a successful dial, so it is entered once
+  per dot per phone.
 -->
 <html lang="en">
 <head>
@@ -15,26 +26,29 @@
   body { font-family: system-ui, sans-serif; background: #181b1f; color: #eee;
          display: flex; flex-direction: column; align-items: center;
          justify-content: center; height: 100dvh; margin: 0; }
+  h1 { font-size: 1.1em; color: #9e9e9e; }
   button { font-size: 1.4em; padding: 1em 2.6em; border-radius: 999px;
            border: 0; margin: .4em; }
-  #call { background: #2e7d32; color: #fff; }
+  #call { background: #2e7d32; color: #fff; font-size: 1.6em;
+          padding: 1.2em 3em; }
   #call.active { background: #b71c1c; }
   #mute { background: #37474f; color: #fff; }
   #mute.off { background: #f9a825; color: #111; }
   input { font-size: 1.1em; padding: .6em; border-radius: 8px; border: 1px solid #555;
           width: min(320px, 80vw); margin: .3em; background: #22262b; color: #eee; }
   #status { min-height: 1.4em; color: #9e9e9e; margin-top: .8em; }
+  #error { color: #ef9a9a; font-size: 1.1em; max-width: 90vw; text-align: center; }
   .row { display: flex; gap: .3em; }
   .hidden { display: none; }
 </style>
 </head>
 <body>
-  <h1 id="title">EchoLocal drop-in</h1>
+  <h1>EchoLocal drop-in</h1>
+  <div id="error" class="hidden"></div>
   <div class="row">
-    <input id="dot" placeholder="dot address (e.g. 192.168.10.99)" autocomplete="off">
     <input id="key" placeholder="pairing key" autocomplete="off">
   </div>
-  <button id="call">Call</button>
+  <button id="call" class="hidden">Call</button>
   <div class="row">
     <button id="mute" class="hidden">Mute</button>
     <button id="hang" class="hidden">Hang up</button>
@@ -43,22 +57,35 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const dot = $("dot"), key = $("key"), call = $("call"),
-        mute = $("mute"), hang = $("hang"), status = $("status");
+  const key = $("key"), call = $("call"),
+        mute = $("mute"), hang = $("hang"), status = $("status"), error = $("error");
   let pc = null, mic = null, callId = null, timer = null;
 
-  const say = (m) => { status.textContent = m; };
+  // Card 9: the page is parameter-driven — no dot input box, no directory.
+  // ?host=<ip-or-host>&room=<room-id>&name=<display-name>
+  const params = new URLSearchParams(location.search);
+  const host = (params.get("host") || "").trim();
+  const room = (params.get("room") || "").trim();
+  const name = (params.get("name") || "").trim() || room || host;
 
-  try { // settings persist in the browser, not on file:// in some engines
-    dot.value = localStorage.getItem("dot") || dot.value;
-    key.value = localStorage.getItem("key") || key.value;
+  // host must be a hostname/IP-ish token; anything that looks unsafe or is
+  // missing means a friendly error and the page never dials (D-DI-9c).
+  const hostOk = /^[A-Za-z0-9._-]{1,253}$/.test(host);
+
+  const say = (m) => { status.textContent = m; };
+  const showFatal = (m) => {
+    error.textContent = m;
+    error.classList.remove("hidden");
+    call.classList.add("hidden");
+    say("cannot dial — fix the link");
+  };
+
+  try { // the pairing key persists in the browser, not on file:// in some engines
+    if (!key.value) key.value = localStorage.getItem("key:" + host) || "";
   } catch (_) {}
 
   const remember = () => {
-    try {
-      localStorage.setItem("dot", dot.value);
-      localStorage.setItem("key", key.value);
-    } catch (_) {}
+    try { localStorage.setItem("key:" + host, key.value); } catch (_) {}
   };
 
   // 30-minute idle auto-end, mirroring the callee max_minutes kill-switch.
@@ -69,23 +96,38 @@
   };
 
   const post = async (path, extra) => {
-    const r = await fetch(`http://${dot.value}${path}`, {
+    const r = await fetch(`http://${host}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(Object.assign({
         // D-DI-9b: name is claimed here but IGNORED server-side — the
         // matched pairing key's entry IS the identity (anti-spoof).
-        call: callId, from: "phone:jag", name: "jag", pairing: key.value
+        call: callId, from: "phone:" + name, name: name, pairing: key.value
       }, extra))
     });
     if (!r.ok) throw new Error(`${path} -> ${r.status}`);
     return r;
   };
 
+  function setupPage() {
+    if (!hostOk) {
+      showFatal("Link is missing a valid host. Open this page from a Home " +
+                "Assistant tile deep link of the form " +
+                "…/call/phone-dropin?host=<dot-address>&room=<room>&name=<label>.");
+      return;
+    }
+    document.title = "Call " + name + " — EchoLocal";
+    key.value = key.value; // keep any stored key pre-filled
+    // NO auto-dial (D-DI-9d): pre-select the room, show the big confirm
+    // button; only an explicit tap starts the offer.
+    call.textContent = "Call " + name;
+    call.classList.remove("hidden");
+    say("ready to call " + name);
+  }
+
   async function start() {
-    if (!dot.value) { say("enter the dot's address first"); return; }
+    if (!hostOk) { showFatal("invalid host"); return; }
     if (!key.value) { say("enter the pairing key first"); return; }
-    remember();
     say("asking for the microphone…");
     try {
       mic = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -113,6 +155,9 @@
     if (!answer.sdp) { say("no answer from the dot"); end(); return; }
     await pc.setRemoteDescription(
       { type: "answer", sdp: answer.sdp });
+    // Successful dial: store the pairing key per host (host -> key) so it is
+    // entered once per dot on this phone.
+    remember();
     say("connected");
     call.textContent = "Connected — tap to end";
     call.classList.add("active");
@@ -128,11 +173,11 @@
     callId = null;
     if (pc) { try { pc.close(); } catch (_) {} pc = null; }
     if (mic) { mic.getTracks().forEach((t) => t.stop()); mic = null; }
-    if (id && dot.value) {
+    if (id && hostOk) {
       post("/call/end", { reason: "hangup" }).catch(() => {});
     }
     say("idle");
-    call.textContent = "Call";
+    call.textContent = "Call " + name;
     call.classList.remove("active");
     call.disabled = false;
     mute.classList.add("hidden");
@@ -151,7 +196,7 @@
     mute.textContent = t.enabled ? "Mute" : "Unmute";
     mute.classList.toggle("off", !t.enabled);
   });
-  say("idle");
+  setupPage();
 })();
 </script>
 </body>
