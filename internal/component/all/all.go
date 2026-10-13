@@ -11,6 +11,7 @@ import (
 	_ "github.com/ygelfand/echolocal/internal/feature/dhcp"
 	_ "github.com/ygelfand/echolocal/internal/feature/diag"
 	_ "github.com/ygelfand/echolocal/internal/feature/feedback"
+	_ "github.com/ygelfand/echolocal/internal/feature/intercom"
 	_ "github.com/ygelfand/echolocal/internal/feature/firmware"
 	_ "github.com/ygelfand/echolocal/internal/feature/light"
 	_ "github.com/ygelfand/echolocal/internal/feature/maintenance"

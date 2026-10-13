@@ -52,6 +52,7 @@ var registered = []string{
 	"hardware_board",
 	"hardware_color",
 	"headphones",
+	"intercom_session",
 	"ip_address",
 	"keep_recordings_1",
 	"keep_recordings_2",
