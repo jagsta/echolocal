@@ -42,7 +42,7 @@ import (
 
 const (
 	TLSPort      = 443
-	CertFilePath = layout.StateDir + "/tls.pem" // /data/misc/echolocal
+	CertFilePath = layout.StateDir + "/tls.pem" // /data/misc/echolocal/tls.pem
 	CertKeyPath  = layout.StateDir + "/tls-key.pem"
 )
 
