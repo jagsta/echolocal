@@ -103,7 +103,6 @@ class DropInRuntime:
     def _set_permission_service(self, data: dict[str, Any]) -> None:
         self.permissions.set_pair(
             str(data["source"]), str(data["target"]), str(data["mode"]),
-            silent_connect=data.get("silent_connect"),
         )
 
     # -- state machine events -> device/media actions ----------------------

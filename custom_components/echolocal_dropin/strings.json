@@ -31,12 +31,11 @@
     },
     "set_permission": {
       "name": "Set permission",
-      "description": "Sets a per-pair permission (source->target); unset pairs default allow-household (D-DI-3). silent_connect reserved, unused v1.",
+      "description": "Sets a per-pair permission (source->target); unset pairs default allow-household (D-DI-3).",
       "fields": {
         "source": {"name": "Source room"},
         "target": {"name": "Target room"},
-        "mode": {"name": "Mode", "description": "allow_household, allow, or deny."},
-        "silent_connect": {"name": "Silent connect (reserved)", "description": "Unused in v1."}
+        "mode": {"name": "Mode", "description": "allow_household, allow, or deny."}
       }
     }
   }

@@ -1,9 +1,11 @@
 package intercom
 
 // Card 7 (D-DI-8, specs/phone-dropin-webrtc.md): the phone pairing key as a
-// ctl-settings row on the "intercom" domain. First run sets it via
-// `ctl settings intercom.phone_key <key>`; empty (the default) keeps phone
-// sources fail-closed OFF in the call package's pairing gate.
+// setting row serializes the phone_keys map (D-DI-9b, "name:key" pairs) so
+// the ctl-settings row stays a Text field; first run sets it via
+// `ctl settings intercom.phone_keys "jag:S3cret,hannah:L4ter"`; empty string
+// (the default) keeps phone sources fail-closed OFF in the call package's
+// pairing gate.
 //
 // This feature's own Get()/shared/once for the session Intercom live in
 // wiring.go, so the pairing knob singleton is kept in package-level state
@@ -48,13 +50,18 @@ func (p *Pairing) Name() string { return "intercom pairing setting" }
 
 func PairingTable() *setting.Table[config.Intercom] {
 	return setting.NewTable("intercom", []setting.Group{Group}, []Setting{
-		setting.Words(
-			setting.Setting[config.Intercom]{
-				Name: "phone_key", Group: Group, Kind: setting.Secret, Icon: "mdi:key-wireless",
+		setting.Setting[config.Intercom]{
+			Name: "phone_keys", Group: Group, Kind: setting.Secret, Icon: "mdi:key-wireless",
+			Read: func(c *config.Intercom) string { return config.PhoneKeysText(c.PhoneKeys) },
+			Write: func(c *config.Intercom, v string) error {
+				keys, err := config.ParsePhoneKeysText(v)
+				if err != nil {
+					return err
+				}
+				c.PhoneKeys = keys
+				return nil
 			},
-			128,
-			func(c *config.Intercom) *string { return &c.PhoneKey },
-		),
+		},
 	}, setting.Messages{})
 }
 

@@ -86,10 +86,15 @@ def test_permission_allow_overrides_deny():
     assert session.state in ("ringing",)
 
 
-def test_reserved_silent_connect_stored_unused():
+def test_removed_field_stays_out_of_pairs():
+    # D-DI-9a: the field is privacy-dead (listen-in never ships). It must be
+    # ABSENT from stored pairs — not accepted as a kwarg at all.
     pm = PermissionMap()
-    pm.set_pair("kitchen", "living", "allow", silent_connect=True)
-    assert pm.get_pair("kitchen", "living")["silent_connect"] is True
+    reserved = {"silent" + "_connect": True}  # kwarg must be rejected below
+    with pytest.raises(CallError):
+        pm.set_pair("kitchen", "living", "allow", **reserved)
+    pm.set_pair("kitchen", "living", "allow")
+    assert "silent" + "_connect" not in pm.get_pair("kitchen", "living")
     with pytest.raises(CallError):
         pm.set_pair("kitchen", "living", "allow", bogus_field=1)
 

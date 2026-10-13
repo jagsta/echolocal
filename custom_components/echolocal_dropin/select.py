@@ -1,8 +1,8 @@
 """Config entity: per-pair permission map (source -> target), D-DI-3.
 
 Select entity per source room; options are the permission modes. Schema
-carries silent_connect as a reserved field (unused v1) so it is additive
-later, not a schema migration.
+carries only the permission modes; pairs are additive, not a schema
+migration.
 """
 from __future__ import annotations
 
@@ -60,15 +60,10 @@ class DropInPermissionSelect(SelectEntity):
             return next(iter(modes))
         return PERMISSION_ALLOW_HOUSEHOLD
 
-    def map_pair(self, target: str, mode: str, **reserved) -> None:
-        """Schema carries silent_connect reserved (unused v1, D-DI-3)."""
+    def map_pair(self, target: str, mode: str) -> None:
         entry = {"mode": mode}
-        for key, value in reserved.items():
-            if key not in PERMISSION_SCHEMA_FIELDS:
-                raise ValueError(f"unknown schema field: {key}")
-            entry[key] = value
         self._pairs[target] = entry
-        self._runtime.permissions.set_pair(self._room, target, mode, **reserved)
+        self._runtime.permissions.set_pair(self._room, target, mode)
 
     def select_option(self, option: str) -> None:
         for target in list(self._pairs):

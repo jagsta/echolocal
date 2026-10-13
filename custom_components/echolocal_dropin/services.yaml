@@ -58,8 +58,3 @@ set_permission:
             - allow_household
             - allow
             - deny
-    # silent_connect: reserved schema field, unused in v1 (D-DI-3).
-    silent_connect:
-      required: false
-      selector:
-        boolean:

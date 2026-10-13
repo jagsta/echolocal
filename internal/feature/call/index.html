@@ -73,6 +73,8 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(Object.assign({
+        // D-DI-9b: name is claimed here but IGNORED server-side — the
+        // matched pairing key's entry IS the identity (anti-spoof).
         call: callId, from: "phone:jag", name: "jag", pairing: key.value
       }, extra))
     });

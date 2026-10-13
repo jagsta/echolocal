@@ -21,9 +21,6 @@ MAX_RECONNECT_ATTEMPTS = 1
 PERMISSION_ALLOW_HOUSEHOLD = "allow_household"  # default for unset pairs
 PERMISSION_ALLOW = "allow"
 PERMISSION_DENY = "deny"
-# Reserved per-pair schema field, unused in v1 (D-DI-3). Kept in the schema
-# from day one so adding it later is additive.
-RESERVED_FIELDS = ("silent_connect",)
 
 # Device states of an endpoint within a session (call-state owner, D-DI-4).
 STATE_IDLE = "idle"

@@ -52,7 +52,7 @@ class CallError(Exception):
 # Permissions: per-pair map (source -> target), default allow-household D-DI-3
 # ---------------------------------------------------------------------------
 
-PERMISSION_SCHEMA_FIELDS = ("mode", "silent_connect")  # silent_connect reserved, unused v1
+PERMISSION_SCHEMA_FIELDS = ("mode",)
 
 
 def normalize_pair(source: str, target: str) -> tuple[str, str]:
@@ -65,8 +65,7 @@ class PermissionMap:
     """Per-pair permission map source->target (D-DI-3).
 
     Unset pairs default to allow-household so rollout behaves trust-wide
-    without configuration. Schema carries silent_connect as a reserved field
-    (stored, unused in v1).
+    without configuration.
     """
 
     def __init__(self, entries: dict[tuple[str, str], dict] | None = None) -> None:

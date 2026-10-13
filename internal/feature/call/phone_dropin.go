@@ -6,9 +6,10 @@ package call
 // A phone/web caller posts POST /call/offer (and /call/end) to echod's web
 // port. Upstream's handlers accept any caller; card 7 wraps them so that
 // phone-sourced signalling (From = "phone:<name>", the card-6 convention)
-// must carry the pairing key held in intercom settings
-// (config.Set().Intercom().PhoneKey(v), set at first run via the echolocal
-// CLI). Fail-closed: when no key is configured every phone offer is
+// must carry a pairing key matching an entry of the intercom settings'
+// phone_keys map (D-DI-9b: the matched entry's NAME becomes the caller
+// identity, server-side; the body's from claim is ignored for phone
+// sources). Fail-closed: when no keys are configured every phone offer is
 // rejected. Dot-to-Dot calls (ids without the "phone:" prefix) hit the
 // upstream handlers unwrapped — byte-identical acceptance.
 //
@@ -63,28 +64,43 @@ func (g *phoneGate) PhoneAnswerHandler() http.Handler {
 }
 func (g *phoneGate) PhoneEndHandler() http.Handler { return http.HandlerFunc(g.endPhone) }
 
-// phonePairing reports whether phone sources are enabled and whether the
-// envelope carries the configured key.
-func (g *phoneGate) phonePairing(m *phoneEnvelope) (enabled, ok bool) {
-	want := config.Get().Intercom.PhoneKey
-	if want == "" {
-		return false, false // fail-closed: pairing not configured, phone sources off
+// phonePairing checks the envelope's key against EACH entry of the
+// configured name->key map (D-DI-9b: key-as-identity). On a match it
+// returns the matched NAME so the caller's From can be overwritten
+// server-side — the body's from claim is ignored for phone sources (the
+// presented key is the identity, anti-spoof). Fail-closed: an empty or
+// absent map disables phone sources entirely.
+func (g *phoneGate) phonePairing(m *phoneEnvelope) (name string, enabled, ok bool) {
+	for n, want := range config.Get().Intercom.PhoneKeys {
+		if want == "" {
+			continue
+		}
+		if subtle.ConstantTimeCompare([]byte(m.Pairing), []byte(want)) == 1 {
+			return n, true, true
+		}
 	}
-	return true, subtle.ConstantTimeCompare([]byte(m.Pairing), []byte(want)) == 1
+	if len(config.Get().Intercom.PhoneKeys) == 0 {
+		return "", false, false // fail-closed: pairing not configured, phone sources off
+	}
+	return "", true, false // pairing on, key missing or mismatched
 }
 
 // check permits non-phone callers and gates phone ones; it writes the
-// response itself when a phone request is rejected.
+// response itself when a phone request is rejected. On success it forces
+// the caller identity to the matched entry's name (D-DI-9b anti-spoof).
 func (g *phoneGate) check(w http.ResponseWriter, m *phoneEnvelope) bool {
 	if !IsPhoneSource(m.From) {
 		return true
 	}
-	enabled, ok := g.phonePairing(m)
+	name, enabled, ok := g.phonePairing(m)
 	switch {
 	case !enabled:
 		http.Error(w, "pairing disabled", http.StatusForbidden)
 	case !ok:
 		http.Error(w, "pairing missing or mismatched", http.StatusUnauthorized)
+	}
+	if enabled && ok {
+		m.From = PhoneSourcePrefix + name
 	}
 	return enabled && ok
 }
