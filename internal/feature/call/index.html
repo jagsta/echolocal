@@ -112,6 +112,12 @@
     } catch (_) {}
   };
 
+  // Card 17: persist on EDIT, not only after a successful dial — before the
+  // first successful call from a browser, a refresh would otherwise re-prompt
+  // for name + key every time. Persistence only: no auto-submit is triggered.
+  key.addEventListener("input", remember);
+  callerName.addEventListener("input", remember);
+
   // 30-minute idle auto-end, mirroring the callee max_minutes kill-switch.
   const armTimer = () => {
     clearTimeout(timer);
