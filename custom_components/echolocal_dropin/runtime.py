@@ -31,6 +31,7 @@ from .const import (
     STATE_RINGING,
 )
 from .device_map import (
+    AREA_TO_DEVICE,
     DROPIN_DEVICE_MAP,
     dot_available,
     dot_for,
@@ -107,6 +108,13 @@ class DropInRuntime:
     def _call_service(self, data: dict[str, Any]) -> None:
         caller_device = str(data["caller_device"])
         callee_device = str(data["callee_device"])
+        # Card A: automations may still send the aspirational echod-<area>
+        # slug for a room without a pinned device; resolve to the real
+        # assist-satellite device id so the dot transport can find it.
+        if dot_for(callee_device) is None:
+            resolved = AREA_TO_DEVICE.get(str(data.get("callee_room") or ""))
+            if resolved is not None:
+                callee_device = resolved
         session_id = str(data.get("session_id") or f"di-{caller_device}-{callee_device}")
         self.machine.call(
             session_id,
