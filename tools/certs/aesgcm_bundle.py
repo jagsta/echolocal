@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """aesgcm_bundle.py — D-CERT card 2 cipher helper (host side).
 
-Packs (fullchain.pem, privkey.pem) into a tar.gz and encrypts it AES-256-GCM
-with a shared 32-byte key (D-CERT-1). The `cryptography` package is present on
-this host's /usr/bin/python3, so the GCM path is the real path — no CBC
-downgrade is implemented here.
+Packs (fullchain.pem, privkey.pem) into one combined PEM stream and encrypts
+it AES-256-GCM. The `cryptography` package is present on this host's
+/usr/bin/python3, so the GCM path is the real path — no CBC downgrade is
+implemented here.
 
-Envelope (little-endian, all lengths 4 bytes):
-    magic  "ECD1"
-    nonce  12 bytes (recorded as u32) || ciphertext || tag, ciphertext as u32 length
-    ...    ciphertext || tag
+Envelope — MUST match the dot-side decryptor
+    (internal/feature/web/certfetch.go decryptBundle, card 1):
+        base64( nonce[12] || AES-256-GCM( combined cert+key PEM ) )
+    AES key = SHA-256( passphrase ), where the passphrase is the 64-char
+    lowercase hex string of the 32-byte shared key. The dot holds that hex
+    string in its `intercom.cert_key` setting; both sides therefore derive
+    the identical AES key from the same passphrase. Nonce travels in the
+    clear; GCM's tag authenticates.
 Decrypt refuses tampered input (GCM tag).
 
 Usage:
@@ -20,16 +24,15 @@ Usage:
 import sys
 import os
 import io
-import tarfile
-import struct
+import re
+import hashlib
+import base64
 from datetime import datetime, timezone
 
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 except ImportError:  # pragma: no cover
     AESGCM = None
-
-MAGIC = b"ECD1"
 
 
 def _require_aesgcm() -> None:
@@ -39,6 +42,7 @@ def _require_aesgcm() -> None:
 
 
 def _load_key(path: str) -> bytes:
+    """Load the shared 32-byte key material (hex digits or raw)."""
     with open(path, "rb") as f:
         raw = f.read().strip()
     # accept hex (64 chars) or raw 32 bytes
@@ -52,49 +56,81 @@ def _load_key(path: str) -> bytes:
     return raw
 
 
-def _tar_certdir(certdir: str) -> bytes:
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        for name in ("fullchain.pem", "privkey.pem"):
-            tf.add(os.path.join(certdir, name), arcname=name)
-    return buf.getvalue()
+def _passphrase(keyfile: str) -> bytes:
+    """The dot's decryptBundle builds its AES key as sha256 of the cert_key
+    passphrase string, which card 3 stages as the keyfile's lowercase hex.
+    Accept either form so the helper works with either keyfile style."""
+    with open(keyfile, "rb") as f:
+        raw = f.read().strip()
+    if len(raw) == 64:
+        try:
+            int(raw.decode(), 16)
+            return raw  # already hex digits
+        except ValueError:
+            pass
+    if len(raw) == 32:
+        return raw.hex().encode()
+    raise SystemExit(f"key file must contain 32 raw bytes or 64 hex chars, got {len(raw)}")
+
+
+def _derive_aes_key(keyfile: str) -> bytes:
+    return hashlib.sha256(_passphrase(keyfile)).digest()
+
+
+def _combined_pem(certdir: str) -> bytes:
+    """Concatenate fullchain.pem + privkey.pem into one PEM stream — the exact
+    plaintext the dot's decryptBundle expects (it PEM-decodes block by block,
+    no tar)."""
+    out = io.BytesIO()
+    for name in ("fullchain.pem", "privkey.pem"):
+        with open(os.path.join(certdir, name), "rb") as f:
+            out.write(f.read())
+    return out.getvalue()
 
 
 def cmd_encrypt(certdir: str, keyfile: str, out: str) -> None:
-    _require_aesgcm()
-    key = _load_key(keyfile)
-    plaintext = _tar_certdir(certdir)
+    import hashlib as _h  # noqa: F401  (local alias, keeps Pyright narrow)
+    if AESGCM is None:
+        raise SystemExit("cryptography package not importable")
+    key = _derive_aes_key(keyfile)
+    plaintext = _combined_pem(certdir)
     nonce = os.urandom(12)
-    ct = AESGCM(key).encrypt(nonce, plaintext, MAGIC)
+    ct = AESGCM(key).encrypt(nonce, plaintext, None)  # dot side passes nil AAD
+    blob = base64.b64encode(nonce + ct)
     with open(out, "wb") as f:
-        f.write(MAGIC)
-        f.write(struct.pack("<I", len(nonce)))
-        f.write(nonce)
-        f.write(struct.pack("<I", len(ct)))
-        f.write(ct)
+        f.write(blob + b"\n")
     os.chmod(out, 0o600)
-    import hashlib
     digest = hashlib.sha256(open(out, "rb").read()).hexdigest()
     print(f"bundle written: {out} sha256={digest}")
 
 
+def _split_pem(pem_bytes: bytes) -> tuple[bytes, bytes]:
+    """Same split the dot's persistCertPair does: CERTIFICATE blocks vs
+    PRIVATE KEY blocks."""
+    blocks = re.findall(
+        rb"-----BEGIN [A-Z ]+?-----\n.*?\n-----END [A-Z ]+?-----\n?", pem_bytes, re.S
+    )
+    cert = b"".join(b for b in blocks if b"CERTIFICATE" in b)
+    priv = b"".join(b for b in blocks if b"PRIVATE KEY" in b)
+    return cert, priv
+
+
 def cmd_decrypt(src: str, keyfile: str, outdir: str) -> None:
-    _require_aesgcm()
-    key = _load_key(keyfile)
-    blob = open(src, "rb").read()
-    if blob[:4] != MAGIC:
-        raise SystemExit("bad magic — not an ECD1 bundle")
-    off = 4
-    (nlen,) = struct.unpack("<I", blob[off:off + 4]); off += 4
-    nonce = blob[off:off + nlen]; off += nlen
-    (clen,) = struct.unpack("<I", blob[off:off + 4]); off += 4
-    ct = blob[off:off + clen]
-    pt = AESGCM(key).decrypt(nonce, ct, MAGIC)  # raises on tamper
+    if AESGCM is None:
+        raise SystemExit("cryptography package not importable")
+    key = _derive_aes_key(keyfile)
+    blob = open(src, "rb").read().strip()
+    raw = base64.b64decode(blob, validate=True)
+    if len(raw) < 12 + 16:
+        raise SystemExit("bundle shorter than nonce+ct+tag")
+    nonce, ct = raw[:12], raw[12:]
+    pt = AESGCM(key).decrypt(nonce, ct, None)  # raises on tamper
     os.makedirs(outdir, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(pt), mode="r:gz") as tf:
-        for member in tf.getmembers():
-            member.mode = 0o600
-            tf.extract(member, outdir, filter="data")
+    cert, priv = _split_pem(pt)
+    for name, data in (("fullchain.pem", cert), ("privkey.pem", priv)):
+        with open(os.path.join(outdir, name), "wb") as f:
+            f.write(data)
+        os.chmod(os.path.join(outdir, name), 0o600)
     print(f"decrypted to {outdir}")
 
 
@@ -103,11 +139,13 @@ def cmd_selftest() -> None:
     with tempfile.TemporaryDirectory() as d:
         key = os.urandom(32)
         keyf = os.path.join(d, "k")
-        open(keyf, "wb").write(key)
+        open(keyf, "wb").write(key)  # raw 32 bytes — passphrase path covers this
         certd = os.path.join(d, "certs")
         os.makedirs(certd)
-        open(os.path.join(certd, "fullchain.pem"), "w").write("CERTTEST")
-        open(os.path.join(certd, "privkey.pem"), "w").write("KEYTEST")
+        open(os.path.join(certd, "fullchain.pem"), "w").write(
+            "-----BEGIN CERTIFICATE-----\nCA==\n-----END CERTIFICATE-----\n")
+        open(os.path.join(certd, "privkey.pem"), "w").write(
+            "-----BEGIN PRIVATE KEY-----\nSw==\n-----END PRIVATE KEY-----\n")
         bundle = os.path.join(d, "b.bin")
         cmd_encrypt(certd, keyf, bundle)
         outd = os.path.join(d, "out")
@@ -116,10 +154,11 @@ def cmd_selftest() -> None:
         def rc(p):
             return open(os.path.join(outd, p)).read()
 
-        assert rc("fullchain.pem") == "CERTTEST" and rc("privkey.pem") == "KEYTEST"
+        assert rc("fullchain.pem") == open(os.path.join(certd, "fullchain.pem")).read()
+        assert rc("privkey.pem") == open(os.path.join(certd, "privkey.pem")).read()
         # tamper check
-        blob = bytearray(open(bundle, "rb").read())
-        blob[-1] ^= 1
+        blob = bytearray(open(bundle, "rb").read().strip())
+        blob[-2] ^= 1
         bad = os.path.join(d, "bad.bin")
         open(bad, "wb").write(blob)
         try:
@@ -140,8 +179,7 @@ def cmd_selftest() -> None:
         except Exception as e:
             if "InvalidTag" not in repr(e) and "tag" not in str(e).lower():
                 raise
-    nonce_pub = datetime.now(timezone.utc)
-    print(f"selftest OK (roundtrip + tamper-refused + wrong-key-refused) at {nonce_pub.isoformat()}")
+    print(f"selftest OK (roundtrip + tamper-refused + wrong-key-refused) at {datetime.now(timezone.utc).isoformat()}")
 
 
 def main() -> None:

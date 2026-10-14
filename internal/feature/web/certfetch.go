@@ -40,7 +40,10 @@ import (
 
 // StagedBundleURL is where hermes stages the encrypted cert bundle on HA
 // (D-CERT-2: HA is a dumb staging bucket). Var so tests can redirect it.
-var StagedBundleURL = "https://homeassistant.jagbains.org/local/dot-cert/bundle.bin"
+// PORT NOTE: this must be :8123 (HA core's own TLS, *.jagbains.org cert) —
+// the bare https://homeassistant.jagbains.org :443 listener is NPM and has
+// no proxy host for that name, so SNI there fails "unrecognized name".
+var StagedBundleURL = "https://homeassistant.jagbains.org:8123/local/dot-cert/bundle.bin"
 
 // Bundle layout (must match hermes' deploy hook, card 2):
 // base64( nonce[12] || AES-256-GCM( combined cert+key PEM ) ), key =
