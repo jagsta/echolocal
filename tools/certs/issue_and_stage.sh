@@ -118,14 +118,29 @@ else
 fi
 
 # --- certbot run (mode parsed above) ------------------------------------------
+# certbot's state (/etc/letsencrypt) is root-owned; when not already root,
+# elevate ONLY the certbot invocation: password via the NOPASSWD cat rule
+# (/etc/hermes-sudo/sudo-password), piped to sudo -S on stdin. Everything
+# AFTER certbot (encrypt + staging + readback) runs UNPRIVILEGED — the ssh
+# key for root@192.168.10.83 lives in jagb's ~/.ssh, and a root ssh would
+# miss jagb's known_hosts ("Host key verification failed").
+CERTBOT_BIN=(certbot)
+if [[ "$(id -u)" != "0" ]]; then
+  PW_FILE="/etc/hermes-sudo/sudo-password"
+  sudo -n cat "$PW_FILE" >/dev/null 2>&1 || die "cannot read $PW_FILE; install/refresh the sudo NOPASSWD cat rule"
+  CERTBOT_BIN=(sudo -S -p '' certbot)
+  export DOTCERT_SUDO_PW="$(sudo -n cat "$PW_FILE")"
+fi
+run_certbot() { if [[ "$(id -u)" != "0" ]]; then printf '%s\n' "$DOTCERT_SUDO_PW" | "${CERTBOT_BIN[@]}" "$@"; else certbot "$@"; fi; }
+
 case "$MODE" in
   --renew)
     log "renewal path: certbot renew --cert-name $CERT_NAME ${DRY_FLAG[*]}"
-    certbot renew --cert-name "$CERT_NAME" --non-interactive "${DRY_FLAG[@]+"${DRY_FLAG[@]}"}"
+    run_certbot renew --cert-name "$CERT_NAME" --non-interactive "${DRY_FLAG[@]+"${DRY_FLAG[@]}"}"
     ;;
   *)
     log "issuance path: certbot certonly --dns-cloudflare -d $CERT_DOMAIN -d '*.$CERT_DOMAIN'"
-    certbot certonly \
+    run_certbot certonly \
       --dns-cloudflare \
       --dns-cloudflare-credentials "$CRED_FILE" \
       --dns-cloudflare-propagation-seconds 30 \
@@ -135,16 +150,32 @@ case "$MODE" in
     ;;
 esac
 
+# A --dry-run run validates the challenge end-to-end and produces NO live dir
+# (certbot stays inside its staging dirs) — that IS success; exit 0 here.
+if [[ ${#DRY_FLAG[@]} -gt 0 ]]; then
+  log "dry-run complete: challenge path validated; nothing staged"
+  exit 0
+fi
+
 # --- locate live cert dir -----------------------------------------------------
+# certbot's /etc/letsencrypt is root-only. When unprivileged, copy the live
+# pair into $WORK_DIR via the sudo pattern, then work unprivileged from here.
 LIVE_DIR="/etc/letsencrypt/live/$CERT_NAME"
-[[ -d "$LIVE_DIR" ]] || die "no certbot live dir at $LIVE_DIR after issuance"
-NOT_AFTER="$(openssl x509 -enddate -noout -in "$LIVE_DIR/cert.pem" | cut -d= -f2)"
-FP="$(openssl x509 -fingerprint -sha256 -noout -in "$LIVE_DIR/cert.pem" | cut -d= -f2)"
-log "cert covers: $(openssl x509 -subject -noout -in "$LIVE_DIR/cert.pem") expires: $NOT_AFTER fp: $FP"
+if [[ "$(id -u)" != "0" ]]; then
+  printf '%s\n' "$DOTCERT_SUDO_PW" | sudo -S -p '' sh -c "cp -RL '$LIVE_DIR'/. '$WORK_DIR/' && chmod 600 '$WORK_DIR'/privkey.pem && chown -R $(id -u):$(id -g) '$WORK_DIR'" \
+    || die "cannot read $LIVE_DIR via sudo"
+  WORK_LIVE="$WORK_DIR"
+else
+  WORK_LIVE="$LIVE_DIR"
+fi
+[[ -s "$WORK_LIVE/fullchain.pem" && -s "$WORK_LIVE/privkey.pem" ]] || die "no certbot live dir at $LIVE_DIR after issuance"
+NOT_AFTER="$(openssl x509 -enddate -noout -in "$WORK_LIVE/cert.pem" | cut -d= -f2)"
+FP="$(openssl x509 -fingerprint -sha256 -noout -in "$WORK_LIVE/cert.pem" | cut -d= -f2)"
+log "cert covers: $(openssl x509 -subject -noout -in "$WORK_LIVE/cert.pem") expires: $NOT_AFTER fp: $FP"
 
 # --- encrypt (AES-256-GCM via helper) ----------------------------------------
 BUNDLE="$WORK_DIR/bundle.bin"
-/usr/bin/python3 "$AESGCM_HELPER" encrypt "$LIVE_DIR" "$KEY_FILE" "$BUNDLE"
+/usr/bin/python3 "$AESGCM_HELPER" encrypt "$WORK_LIVE" "$KEY_FILE" "$BUNDLE"
 LOCAL_SHA="$(sha256sum "$BUNDLE" | awk '{print $1}')"
 log "local bundle sha256=$LOCAL_SHA"
 
