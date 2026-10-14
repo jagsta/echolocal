@@ -1,6 +1,7 @@
 package call
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/ygelfand/echolocal/internal/android/firewall"
@@ -26,5 +27,8 @@ const (
 func armICEPorts() {
 	if err := firewall.OpenUDPRange(firewall.CallUDP, icePortLow, icePortHigh); err != nil {
 		slog.Error("opening the call ICE UDP range failed", "err", err)
+		return
 	}
+	slog.Info("armed call ICE UDP range", "chain", firewall.CallUDP,
+		"ports", fmt.Sprintf("%d:%d", icePortLow, icePortHigh))
 }
