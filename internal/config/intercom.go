@@ -34,7 +34,18 @@ type Intercom struct {
 	// (fail-closed): browser calls fail exactly as pre-card-12. Non-browser
 	// Dot-to-Dot clients send no Origin and are unaffected.
 	CORSOrigins []string `json:"cors_origins,omitempty"`
+
+	// CertKey is the shared AES-GCM passphrase used to decrypt the
+	// wildcard-cert bundle staged on HA (D-CERT-1). Read by the
+	// certfetch goroutine; empty means fetching is disabled (self-signed
+	// fallback stays).
+	CertKey string `json:"cert_key,omitempty"`
 }
+
+// CertHostDomain is the wildcard's parent domain every dot serves. The
+// fetched cert must carry *.CertHostDomain; the dot's own hostname is
+// install --name + "-dot." + CertHostDomain (D-CERT-5).
+const CertHostDomain = "jagbains.org"
 
 // DefaultCORSOrigin is the one known-good origin: the HA-hosted PWA page
 // origin (the NPM-proxied fetch origin is a different port).

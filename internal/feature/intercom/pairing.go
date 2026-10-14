@@ -63,6 +63,18 @@ func PairingTable() *setting.Table[config.Intercom] {
 				return nil
 			},
 		},
+		// D-CERT card 15+: cert_key is the shared AES-GCM passphrase used to
+		// decrypt the staged wildcard-cert bundle staged on HA
+		// (specs/dot-cert-decisions.md, D-CERT-1). Secret, same shape as
+		// phone_keys; empty string means the fetcher has nothing to decrypt with.
+		setting.Setting[config.Intercom]{
+			Name: "cert_key", Group: Group, Kind: setting.Secret, Icon: "mdi:key-chain",
+			Read: func(c *config.Intercom) string { return c.CertKey },
+			Write: func(c *config.Intercom, v string) error {
+				c.CertKey = strings.TrimSpace(v)
+				return nil
+			},
+		},
 		// Card 15: cors_origins allowlist as a plain Text row (NOT secret —
 		// card 12's D-DI-9 field); empty string clears to nil (fail-closed),
 		// malformed entries are rejected at SET time.

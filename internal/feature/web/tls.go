@@ -122,10 +122,16 @@ func tlsMux() *http.ServeMux {
 
 // Run serves TLS on :443 for as long as the plain server runs.
 func (t *tlsListener) Run(ctx context.Context) error {
-	cert, err := ensureCertificate()
+	// D-CERT card 18: seed the atomic once at startup — the persisted pair if
+	// one exists (a fetched wildcard from a previous run), self-signed
+	// otherwise. Then serve with a GetCertificate callback so the certfetch
+	// goroutine can hot-swap without a listener restart.
+	seed, err := ensureCertificate()
 	if err != nil {
 		return fmt.Errorf("tls: certificate: %w", err)
 	}
+	swapCert(seed)
+	go fetchLoop(ctx)
 
 	t.mu.Lock()
 	srv := &http.Server{
@@ -134,10 +140,11 @@ func (t *tlsListener) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
-			Certificates: []tls.Certificate{{
-				Certificate: [][]byte{cert.Certificate[0]},
-				PrivateKey:  cert.PrivateKey,
-			}},
+			// D-CERT: dynamic cert source, consulted per handshake; the
+			// static Certificates slice must stay empty for it to win.
+			GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+				return currentCert()
+			},
 		},
 	}
 	t.mu.Unlock()
