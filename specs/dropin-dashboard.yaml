@@ -1,0 +1,119 @@
+# Drop-in dashboard — dedicated Lovelace dashboard for Jag's HA
+#
+# Deploy: new dashboard (Settings → Dashboards → Add dashboard → "Drop-in"),
+# take control, paste this into the dashboard's YAML editor (top-level
+# views: structure), one view "Drop-in".
+#
+# Design (per D-DI-9c/d + card 16):
+# - Mushroom cards (already in /config/www/community) — native HA look, no
+#   new HACS dep.
+# - Every tile URL carries sig=https://homeassistant.jagbains.org —
+#   MANDATORY (omitting it = Chromium blocks the POST with
+#   ERR_CERT_AUTHORITY_INVALID, page appears dead).
+# - The tile OPENS the page; the page's confirm button dials. No auto-dial.
+# - Rooms without dots yet (Zak, Finn, Jasmine, Lounge) show as disabled
+#   placeholders with a "dot pending" badge so the family doesn't tap a dead
+#   tile and blame the system. Kitchen is live and validated.
+#
+# NOTE on placeholders: a tile whose dot doesn't exist yet is fine to render —
+# the dialer page will show its friendly error if anyone taps it — but the
+# mushroom card is marked visually as pending (icon greyed, second line).
+# When dot #2..#5 land: swap the host= IP in the tile and the badge.
+
+title: Drop-in
+views:
+  - title: Drop-in
+    path: drop-in
+    icon: mdi:phone-dial
+    type: sections
+    sections:
+      - type: grid
+        cards:
+          # ── KITCHEN — LIVE (pilot, 192.168.10.99) ─────────────────────────
+          - type: custom:mushroom-template-card
+            primary: Kitchen
+            secondary: Drop in — live
+            icon: mdi:chef-hat
+            icon_color: blue
+            fill_container: true
+            tap_action:
+              action: url
+              url_path: https://homeassistant.jagbains.org:8123/local/phone-dropin.html?host=192.168.10.99&room=kitchen&name=Kitchen&sig=https://homeassistant.jagbains.org
+            card_mod:
+              style: |
+                ha-card {
+                  --ha-card-background: var(--card-background-color);
+                }
+                .multiline { height: 64px; }
+          # ── LOUNGE — pending dot ────────────────────────────────────────────
+          - type: custom:mushroom-template-card
+            primary: Lounge
+            secondary: dot pending
+            icon: mdi:sofa-outline
+            icon_color: ''
+            fill_container: true
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { opacity: 0.45; }
+                .multiline { height: 64px; }
+      - type: grid
+        cards:
+          # ── ZAK — pending dot ──────────────────────────────────────────────
+          - type: custom:mushroom-template-card
+            primary: Zak's Room
+            secondary: dot pending
+            icon: mdi:bed-single-outline
+            icon_color: ''
+            fill_container: true
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { opacity: 0.45; }
+                .multiline { height: 64px; }
+          # ── FINN — pending dot ─────────────────────────────────────────────
+          - type: custom:mushroom-template-card
+            primary: Finn's Room
+            secondary: dot pending
+            icon: mdi:bed-single-outline
+            icon_color: ''
+            fill_container: true
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { opacity: 0.45; }
+                .multiline { height: 64px; }
+          # ── JASMINE — pending dot ──────────────────────────────────────────
+          - type: custom:mushroom-template-card
+            primary: Jasmine's Room
+            secondary: dot pending
+            icon: mdi:teddy-bear
+            icon_color: ''
+            fill_container: true
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { opacity: 0.45; }
+                .multiline { height: 64px; }
+
+# ─── Tile shapes when each dot lands ────────────────────────────────────────
+# Replace the placeholder card with this (change the three values):
+#           - type: custom:mushroom-template-card
+#             primary: <Display Name>
+#             secondary: Drop in — live
+#             icon: mdi:microphone
+#             icon_color: blue
+#             fill_container: true
+#             tap_action:
+#               action: url
+#               url_path: https://homeassistant.jagbains.org:8123/local/phone-dropin.html?host=<dot-ip>&room=<room-id>&name=<Display Name>%20<suffix if needed>&sig=https://homeassistant.jagbains.org
+#
+# NOTE: &name= is a ROOM display name on the CALLEE side (what the dot
+# announces + what shows in the callee screen), NOT the caller identity.
+# Caller identity comes from the pairing key name entry in the PWA
+# (D-DI-9b). URL-encoding: spaces in name= are fine as %20 or plain spaces
+# (URLSearchParams on the page decodes both).
