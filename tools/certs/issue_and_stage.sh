@@ -208,4 +208,30 @@ if [[ "$LOCAL_SHA" != "$REMOTE_SHA" ]]; then
 fi
 log "staged readback verified (sha256 match: $REMOTE_SHA)"
 log "bundle staged at $HA_TARGET:$HA_STAGE_DIR/bundle.bin (sidecar bundle.json alongside)"
+
+# --- ALSO redeploy the live pair to every host that serves it (runbook-wide):
+#   1. HA core TLS (:8123) /ssl/ + core restart
+#   2. NPM custom_ssl npm-1/ + addon restart
+#   3. Proxmox /etc/pve/local/pveproxy-ssl.{pem,key} + pveproxy restart
+# Dots are NOT covered here (certfetch self-updates — D-CERT-4).
+log "deploying the live pair to HA /ssl, NPM custom_ssl, and the PVE host"
+scp -q -o BatchMode=yes "$WORK_LIVE/fullchain.pem" "$WORK_LIVE/privkey.pem" \
+  "$HA_TARGET:/ssl/" || log "WARN: /ssl scp failed (HA core keeps old cert)"
+scp -q -o BatchMode=yes "$WORK_LIVE/fullchain.pem" "$WORK_LIVE/privkey.pem" \
+  "$HA_TARGET:/app_configs/a0d7b954_nginxproxymanager/custom_ssl/npm-1/" \
+  || log "WARN: NPM custom_ssl scp failed"
+scp -q -o BatchMode=yes "$WORK_LIVE/fullchain.pem" root@192.168.10.13:/tmp/pve-fullchain.pem \
+  && scp -q -o BatchMode=yes "$WORK_LIVE/privkey.pem" root@192.168.10.13:/tmp/pve-privkey.pem \
+  && ssh -o BatchMode=yes root@192.168.10.13 \
+    'cp /tmp/pve-fullchain.pem /etc/pve/local/pveproxy-ssl.pem \
+      && cp /tmp/pve-privkey.pem /etc/pve/local/pveproxy-ssl.key \
+      && chmod 640 /etc/pve/local/pveproxy-ssl.* \
+      && systemctl restart pveproxy' \
+  || log "WARN: PVE pveproxy-ssl deploy failed"
+ssh -o BatchMode=yes "$HA_TARGET" "ha apps restart a0d7b954_nginxproxymanager" >/dev/null 2>&1 \
+  || log "WARN: NPM addon restart via ha CLI failed"
+ssh -o BatchMode=yes "$HA_TARGET" "ha core restart" >/dev/null 2>&1 \
+  || log "WARN: HA core restart failed"
+log "live pair deployed: HA /ssl, NPM custom_ssl (npm-1), PVE pveproxy-ssl; dots self-update via certfetch"
+
 rm -rf "$WORK_DIR"
