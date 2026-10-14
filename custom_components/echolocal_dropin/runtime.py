@@ -205,12 +205,21 @@ class DropInRuntime:
         if facts is None:
             # Not a known dot (e.g. a phone: peer) — nothing physical to dial.
             return
-        service = f"esphome.{facts['node']}_{action}"
-        _LOGGER.info("drop-in dot transport: %s %s", service, args)
+        service = f"{facts['node']}_{action}"
+        _LOGGER.info("drop-in dot transport: esphome.%s %s", service, args)
         try:
-            self.hass.services.call(service, "", args, blocking=False)
+            # The state machine emits from SyncWorker threads; service calls
+            # must resolve hass + the esphome dynamic-action registry on the
+            # loop thread (async_get_hass thread-check otherwise throws).
+            self.hass.add_job(self._dot_action_async, service, args)
         except Exception as err:  # noqa: BLE001 — transport must never break the machine
             _LOGGER.warning("drop-in dot action %s failed: %s", service, err)
+
+    async def _dot_action_async(self, service: str, args: dict[str, str]) -> None:
+        try:
+            await self.hass.services.async_call("esphome", service, args, blocking=False)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("drop-in dot action esphome.%s failed: %s", service, err)
 
     def endpoint_session_state(self, device_id: str) -> str:
         """The dot-published session state for dropin_state context exposure."""
@@ -282,12 +291,18 @@ class DropInRuntime:
             return
         state = self.hass.states.get(entity)
         if state is not None and state.state == STATE_PLAYING:
-            self.hass.services.call("media_player", "media_pause", {"entity_id": entity}, blocking=False)
+            self.hass.add_job(
+                self.hass.services.async_call, "media_player", "media_pause",
+                {"entity_id": entity}, True,
+            )
             self._paused_for_call.add(device_id)
 
     def _media_resume(self, device_id: str) -> None:
         entity = self._media_targets.get(device_id)
         if entity is None or device_id not in self._paused_for_call:
             return
-        self.hass.services.call("media_player", "media_play", {"entity_id": entity}, blocking=False)
+        self.hass.add_job(
+            self.hass.services.async_call, "media_player", "media_play",
+            {"entity_id": entity}, True,
+        )
         self._paused_for_call.discard(device_id)
