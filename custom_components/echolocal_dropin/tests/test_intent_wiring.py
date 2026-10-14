@@ -157,7 +157,9 @@ def test_drop_in_call_maps_to_call_service():
     assert domain == "echolocal_dropin"
     assert service == SERVICE_CALL
     assert data["callee_room"] == "kitchen"
-    assert data["callee_device"].startswith("echod-")
+    # Card A: callee_device is the REAL assist-satellite device id, not a slug
+    from custom_components.echolocal_dropin.device_map import DROPIN_DEVICE_MAP
+    assert data["callee_device"] in DROPIN_DEVICE_MAP
 
 
 def test_answer_maps_to_accept():
@@ -235,10 +237,11 @@ def test_intent_no_second_call_bypass_busy_reject():
         # dev-c2 (different caller) -> same busy callee mid-ring; the intent
         # path uses the SAME machine ownership path as the service, so the
         # machine's D-DI-6 busy-reject cannot be bypassed by an intent.
+        from custom_components.echolocal_dropin.device_map import AREA_TO_DEVICE
         machine.call(
             "di-dev-c2",
             Endpoint("dev-c2", "family_room"),
-            Endpoint("echod-kitchen", "kitchen"),
+            Endpoint(AREA_TO_DEVICE["kitchen"], "kitchen"),
         )
     # no successful second dispatch beyond the rejected attempt: the second
     # call raised before the machine registered any new session

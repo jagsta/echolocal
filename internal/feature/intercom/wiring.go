@@ -257,6 +257,26 @@ func (i *Intercom) Accept() {
 	i.mu.Unlock()
 }
 
+// CallerConnect is the caller-side counterpart of Accept (card A,
+// t_d767ce0a): HA invokes dropin_connect on the caller dot once the callee
+// accepted. Same turn mechanics, no ring-floor check (the CALLEE's machine
+// already enforced it).
+func (i *Intercom) CallerConnect() {
+	s := i.session
+	state, ok := s.CallerJoin()
+	if !ok {
+		slog.Warn("intercom caller connect refused", "state", state)
+		return
+	}
+	if err := i.vs.StartTurn("", nil); err != nil {
+		slog.Error("intercom caller turn open failed", "err", err)
+		s.End("dropped")
+	}
+	i.mu.Lock()
+	i.turnOpen = true
+	i.mu.Unlock()
+}
+
 // ToggleMute flips mic transmit off/on in-call (D-DI-6); mute keeps the turn
 // open but stops pumping frames.
 func (i *Intercom) ToggleMute() {

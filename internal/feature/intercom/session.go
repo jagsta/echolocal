@@ -163,6 +163,34 @@ func (s *Session) Accept() (State, bool) {
 	return InCall, true
 }
 
+// CallerJoin connects the CALLER side of an HA-mediated dial (card A,
+// t_d767ce0a): the HA runtime invokes dropin_connect on the caller dot once
+// the callee accepted. Unlike Accept (anti-ambush guarded, D-DI-3) this is a
+// trusted local action from the household's HA — allowed straight from Idle
+// and from Ringing (the callee-dot re-ringing case). Returns the state after
+// the attempt.
+func (s *Session) CallerJoin() (State, bool) {
+	s.mu.Lock()
+	switch s.now {
+	case Idle, Ringing:
+	default:
+		now := s.now
+		s.mu.Unlock()
+		return now, false
+	}
+	from := s.now
+	s.now = InCall
+	s.rang = time.Time{}
+	s.endpoints = append(s.endpoints[:0], "caller", "callee")
+	s.mu.Unlock()
+
+	s.emit(from, InCall)
+	if s.maxDuration > 0 {
+		s.armKill(s.maxDuration)
+	}
+	return InCall, true
+}
+
 // Mute toggles mic transmit off in-call (D-DI-6). Only meaningful in-call:
 // muted is a sub-state of InCall, never an idle or ringing condition.
 func (s *Session) Mute(on bool) (State, bool) {

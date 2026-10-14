@@ -27,6 +27,14 @@ from .const import (
     SERVICE_CALL,
     SERVICE_HANGUP,
     SERVICE_SET_PERMISSION,
+    STATE_IN_CALL,
+    STATE_RINGING,
+)
+from .device_map import (
+    DROPIN_DEVICE_MAP,
+    dot_available,
+    dot_for,
+    session_state,
 )
 from .relay import StarRelay
 from .state_machine import (
@@ -37,6 +45,10 @@ from .state_machine import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _all_dots() -> dict[str, dict[str, str]]:
+    return DROPIN_DEVICE_MAP
 
 
 class DropInRuntime:
@@ -61,6 +73,14 @@ class DropInRuntime:
         _LOGGER.debug("drop-in runtime event %s %s", kind, data)
 
     async def async_setup(self) -> None:
+        # Card A (t_d767ce0a): production wiring of the previously-TODO'd
+        # seams. Device ids are real HA device-registry ids (the automations
+        # pass trigger.device_id); the map is additive per room.
+        self.device_available = lambda device_id: dot_available(self.hass, device_id)
+        for device_id, facts in _all_dots().items():
+            # TTS target = the dot's own assist_satellite entity (its voice
+            # reply path; D-DI-5 offline-at-dial notice).
+            self.register_media(device_id, facts["satellite_entity"])
         async def handle_call(call: ServiceCall) -> None:
             await self.hass.async_add_executor_job(self._call_service, call.data)
 
@@ -112,6 +132,12 @@ class DropInRuntime:
         if kind == "ring":
             # Callee chime + LED ring via echod's existing expose (D-DI-3).
             self._media_pause(data["callee"])
+            # Card A: transport the ring to the dot — invoke the callee's
+            # ESPHome dropin_dial action (chime/LED/session sensor paint
+            # happens dot-side the moment Session.Ring() fires).
+            self._dot_action(data["callee"], "dropin_dial", {
+                "session": data["session"], "caller": data["caller"],
+            })
         elif kind == "connect":
             relay = self._relays.get(data["session"])
             if relay is None:
@@ -121,12 +147,20 @@ class DropInRuntime:
                     relay.add(d)
                 relay.open()
                 self._relays[data["session"]] = relay
+            # Card A: open the CALLER dot's intercom turn (the callee's own
+            # accept path already opened its turn device-side).
+            caller = data.get("caller") or (data["endpoints"] or [None])[0]
+            if caller:
+                self._dot_action(caller, "dropin_connect", {})
         elif kind == "teardown":
             relay = self._relays.pop(data["session"], None)
             if relay is not None:
                 relay.close()
             for d in data.get("endpoints", []) or []:
                 self._media_resume(d)
+                # Card A: explicit dot teardown (hangup from either side,
+                # kill-switch, dropped) mirrors onto each dot's session.
+                self._dot_action(d, "dropin_end", {"reason": "hangup"})
             # end chime + media resume on both ends emitted by machine already
         elif kind == "mute_changed":
             # D-DI-6 mute visibility: the device-side wiring already paints
@@ -136,6 +170,36 @@ class DropInRuntime:
                 "drop-in mute: device=%s muted=%s session=%s",
                 data.get("device"), data.get("muted"), data.get("session"),
             )
+
+    # -- dot transport (Card A: the physical dial) -------------------------
+
+    def _dot_action(self, device_id: str, action: str, args: dict[str, str]) -> None:
+        """Invoke an ESPHome user-defined action on one dot over its existing
+        native-API connection. Fire-and-forget: the dot answers with its
+        session state (dropin_dial refuses busy with an error reply, D-DI-6),
+        and failures log rather than unwind the state machine."""
+        facts = dot_for(device_id)
+        if facts is None:
+            # Not a known dot (e.g. a phone: peer) — nothing physical to dial.
+            return
+        service = f"esphome.{facts['node']}_{action}"
+        _LOGGER.info("drop-in dot transport: %s %s", service, args)
+        try:
+            self.hass.services.call(service, "", args, blocking=False)
+        except Exception as err:  # noqa: BLE001 — transport must never break the machine
+            _LOGGER.warning("drop-in dot action %s failed: %s", service, err)
+
+    def endpoint_session_state(self, device_id: str) -> str:
+        """The dot-published session state for dropin_state context exposure."""
+        return session_state(self.hass, device_id)
+
+    def caller_state_payload(self, device_id: str) -> dict[str, str]:
+        """Conversation context the assist satellite should carry:
+        dropin_state=<session state> for DropInAnswer/DropInHangup guards."""
+        state = self.endpoint_session_state(device_id)
+        if state in (STATE_RINGING, STATE_IN_CALL) or state in ("ringing", "in-call", "muted", "joined"):
+            return {"dropin_state": state}
+        return {}
 
     def call_or_report_offline(self, data: dict[str, Any]) -> None:
         """Accepted-risk path (D-DI-6): offline-at-dial gives the CALLER

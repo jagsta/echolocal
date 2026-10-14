@@ -121,7 +121,11 @@ class IntentRouter:
         return "unknown"
 
     def _callee_device(self, area_id: str) -> str:
-        return f"echod-{area_id}"
+        # Card A (t_d767ce0a): real dot device ids, not aspirational slugs.
+        # Falls back to the old slug convention for areas without a dot yet.
+        from .device_map import AREA_TO_DEVICE
+
+        return AREA_TO_DEVICE.get(area_id) or f"echod-{area_id}"
 
     # -- callee side --------------------------------------------------------
 

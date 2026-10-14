@@ -319,7 +319,8 @@ class CallStateMachine:
         session.started_at = at
         for ep in session.endpoints:
             ep.state = STATE_IN_CALL
-        self.emit("connect", {"session": session.session_id, "endpoints": session.device_ids()})
+        self.emit("connect", {"session": session.session_id, "endpoints": session.device_ids(),
+                              "caller": session.endpoints[0].device_id})
 
     def hangup(self, session_id: str, device_id: str | None = None, at: float | None = None) -> None:
         """'hang up'/'stop'/button — ends chime both ends, media resumes (D-DI-5)."""
@@ -385,7 +386,8 @@ class CallStateMachine:
             self._busy_rejects.pop(d, None)
         for d in session.device_ids():
             self.emit("end_chime", {"to_device": d, "reason": reason})
-        self.emit("teardown", {"session": session.session_id, "reason": reason, "at": at})
+        self.emit("teardown", {"session": session.session_id, "reason": reason, "at": at,
+                               "endpoints": session.device_ids()})
 
     def set_muted(self, session_id: str, device_id: str, muted: bool) -> None:
         """HA-side mute visibility (D-DI-6): echoes the device-side mute
