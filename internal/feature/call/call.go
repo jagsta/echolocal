@@ -1,6 +1,7 @@
 package call
 
 import (
+	"context"
 	"net/http"
 	"sync"
 
@@ -17,6 +18,17 @@ import (
 )
 
 type componentCall struct{ *sharedcall.Calls }
+
+// Card 14b: arm the ICE UDP firewall window at component START, not at Go
+// init — Amazon's firewall.sh runs `$IPTABLES --flush` (whole filter table)
+// when the boot completes, after which init-armed rules are gone (live
+// finding 14 Oct: post-powercycle boots left ECHOLOCAL_CALLUDP empty).
+// Every chain armed by its feature's component Run survives; the runtime
+// starts components after boot completion, like web.Run's Open.
+func (c *componentCall) Run(ctx context.Context) error {
+	armICEPorts()
+	return c.Calls.Run(ctx)
+}
 
 func (c *componentCall) Restore(v config.Config) { c.Calls.Restore(v.Call) }
 
