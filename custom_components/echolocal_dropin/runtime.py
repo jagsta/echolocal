@@ -170,11 +170,18 @@ class DropInRuntime:
                     relay.add(d)
                 relay.open()
                 self._relays[data["session"]] = relay
-            # Card A: open the CALLER dot's intercom turn (the callee's own
-            # accept path already opened its turn device-side).
-            caller = data.get("caller") or (data["endpoints"] or [None])[0]
-            if caller:
-                self._dot_action(caller, "dropin_connect", {})
+            # Card A (run 90 live finding): the CALLEE dot's session never
+            # leaves Ringing when the accept is executed on the HA side, and
+            # the callee's dot-side Session has no production accept trigger
+            # on this path — dot-native accept is idempotent-safe from
+            # Ringing (CallerJoin is explicitly allowed from Ringing, and a
+            # dropin_connect to a dot already InCall is a no-op that simply
+            # reopens nothing: wiring.Accept/CallerConnect refuse non-ring
+            # joins with a warn, no state damage). Transport connect to BOTH
+            # endpoints so the callee's session sensor paints in_call and
+            # both dots open their turns.
+            for d in data.get("endpoints", []) or []:
+                self._dot_action(d, "dropin_connect", {})
         elif kind == "teardown":
             relay = self._relays.pop(data["session"], None)
             if relay is not None:
