@@ -33,6 +33,7 @@ dashboard YAML editor is deliberately manual.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import subprocess
 import sys
@@ -40,6 +41,8 @@ import sysconfig  # noqa: F401  (ensures stdlib layout docs)
 
 HA_HOST_DEFAULT = "root@192.168.10.83"
 SIG = "https://homeassistant.jagbains.org"
+
+DOT_SIG_TMPL = "https://%s-dot.jagbains.org"
 PAGE_BASE = "https://homeassistant.jagbains.org:8123/local/phone-dropin.html"
 
 # Per-room display names + icons pending-room defaults; live tiles take the
@@ -113,6 +116,11 @@ def collect(ha_host: str, tmpdir: str) -> tuple[list[dict], dict, dict]:
 
 
 def live_tile(name: str, disp: str, host_ip: str, icon: str) -> dict:
+    # D-CERT-5: per-dot hostname = room name + -dot.jagbains.org; the tile's
+    # sig= is now the DOT's own trusted origin (wildcard LE via certfetch),
+    # NOT the single homeassistant host. LEGACY_SIG=1 in the env falls back
+    # to the old single-origin sig (NPM-dormant rollback path, D-CERT-6).
+    sig = SIG if os.environ.get("LEGACY_SIG") else DOT_SIG_TMPL % name
     return {
         "type": "custom:mushroom-template-card",
         "primary": f"{disp}",
@@ -123,7 +131,7 @@ def live_tile(name: str, disp: str, host_ip: str, icon: str) -> dict:
         "tap_action": {
             "action": "url",
             "url_path": f"{PAGE_BASE}?host={host_ip}&room={name}"
-                        f"&name={disp}&sig={SIG}",
+                        f"&name={disp}&sig={sig}",
         },
         "card_mod": {"style": "ha-card { --ha-card-background:"
                               " var(--card-background-color); }\n"
