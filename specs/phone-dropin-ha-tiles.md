@@ -104,3 +104,43 @@ it is entered once per dot.
 
 Mic capture inside the HA companion WebView is the separate human test:
 Android companion WebView yes; iOS must open in Safari.
+
+## Adding a new Echo unit — runbook (DHCP reservation chosen over DNS, 14 Oct)
+
+Per-dot human cost after autodiscovery (grilled decision: DHCP reservations,
+not DNS records — dots only speak mDNS/zeroconf; making unicast DNS records
+for them adds machinery nobody needs until 4+ dots force per-dot NPM rules
+anyway):
+
+1. **Reserve the IP.** On the UDR controller: DHCP reservation, MAC ←→
+   192.168.10.x for the dot's subnet. The dot's MAC is readable from `ha`
+   config entries once adopted (step 3) — so if you prefer reserving BEFORE
+   letting the device online, take the MAC from the `echolocal install`
+   output/adb shell (`cat /proc/idme/mac_addr` equivalent).
+   SKIPPING this doesn't break anything immediately — it just risks a silent
+   tile breakage if DHCP reassigns the IP later.
+2. **Flash + name.** `echolocal install --name <room>` (the room name drives
+   the device prefix AND the callee display name in HA). Prints the pairing
+   key — keep it.
+3. **Adopt in HA.** One click in the ESPHome integration discovery flow
+   (Settings → Devices → the new dot shows up automatically); paste the
+   pairing key. ~137 entities register themselves. If you skipped step 1,
+   grab the dot's MAC from the new esphome config entry (`unique_id`) and do
+   the reservation now.
+4. **Check the area.** The dot's devices land in an area matching the install
+   name automatically; if one lands wrong, move it in the UI (or websocket
+   `area_registry/update`).
+5. **Regenerate the tiles.** From hermes:
+   `/home/jagb/.hermes/installs/7ec44d0e870bd945/environments/f26e4fd4543e4b968079e6cab9e99bbb/venv/bin/python tools/ha/gen_dropin_dashboard.py --pending <any not-yet-provisioned rooms> --out /tmp/dropin.yaml`
+   — reads HA's own registries (esphome config entries + device/area
+   registries, EchoLocal-manufacturer filtered), emits the full dashboard
+   YAML with live tiles for every discovered dot and disabled placeholders
+   for the pending list. Paste into the Drop-in dashboard raw editor (or
+   hand-patch the one new tile for a surgical change).
+6. **Set the pairing key + caller name on each phone** that will dial the new
+   room (one-time, per dot per phone) and add the dot-side key entry via
+   `ctl settings intercom.phone_keys "jag:...,hannah:..."`.
+
+Every tile the generator emits carries `sig=https://homeassistant.jagbains.org`
+(the card-16 gotcha is baked into the generator itself — it CANNOT emit a
+sig-less tile).
