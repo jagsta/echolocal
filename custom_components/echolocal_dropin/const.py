@@ -14,6 +14,12 @@ RING_FLOOR_SECONDS = 3.0
 # D-DI-5: max-duration kill-switch against forgotten open lines.
 DEFAULT_MAX_CALL_SECONDS = 30 * 60
 
+# Card A fix (live failure 14 Oct): an unanswered / undelivered RING ends here
+# so the caller endpoint (STATE_DIALING) cannot wedge the machine busy forever.
+# Long enough for D-DI-3's 3s ring floor + human answer, short enough that a
+# failed transport retry is worth within a minute.
+DEFAULT_RING_TIMEOUT_SECONDS = 30.0
+
 # D-DI-4: single reconnect attempt on HA comeback after a drop. No retry storm.
 MAX_RECONNECT_ATTEMPTS = 1
 

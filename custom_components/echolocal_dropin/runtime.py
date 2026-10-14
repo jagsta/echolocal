@@ -13,10 +13,12 @@ pilot pair and is additive per room.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.const import STATE_PLAYING
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     DOMAIN,
@@ -99,7 +101,20 @@ class DropInRuntime:
         self.hass.services.async_register(DOMAIN, SERVICE_HANGUP, handle_hangup)
         self.hass.services.async_register(DOMAIN, SERVICE_SET_PERMISSION, handle_set_permission)
 
+        # Card A fix (live failure 14 Oct): the machine only reaped ACTIVE
+        # sessions at max_duration via nothing at all — gc_tick existed but no
+        # caller ever ran it, so an unanswered RING wedged the caller endpoint
+        # in dialing and every later dial was busy-rejected until restart.
+        # Run the reaper every 5s: ring timeout (30s) + max-duration.
+        async def _gc_tick(_now) -> None:
+            await self.hass.async_add_executor_job(self.machine.gc_tick)
+
+        self._gc_unsub = async_track_time_interval(self.hass, _gc_tick, timedelta(seconds=5))
+
     async def async_unload(self) -> None:
+        if getattr(self, "_gc_unsub", None) is not None:
+            self._gc_unsub()
+            self._gc_unsub = None
         for session_id in list(self.machine.sessions):
             self.machine.hangup(session_id)
 

@@ -24,6 +24,7 @@ from typing import Callable
 
 from .const import (
     DEFAULT_MAX_CALL_SECONDS,
+    DEFAULT_RING_TIMEOUT_SECONDS,
     MAX_RECONNECT_ATTEMPTS,
     PERMISSION_ALLOW,
     PERMISSION_ALLOW_HOUSEHOLD,
@@ -144,11 +145,13 @@ class CallStateMachine:
         emit: Callable[[str, dict], None] | None = None,
         now: Callable[[], float] | None = None,
         max_call_seconds: float = DEFAULT_MAX_CALL_SECONDS,
+        ring_timeout_seconds: float = DEFAULT_RING_TIMEOUT_SECONDS,
     ) -> None:
         self.permissions = permissions or PermissionMap()
         self.emit = emit or (lambda kind, data: None)
         self.now = now or __import__("time").time
         self.max_call_seconds = max_call_seconds
+        self.ring_timeout_seconds = ring_timeout_seconds
         self.sessions: dict[str, Session] = {}
         self._lock = Lock()  # call() is check-then-act; serialize it (HA is asyncio-serialized anyway)
         self._busy_rejects: dict[str, str] = {}  # device_id -> rejection reason
@@ -291,7 +294,7 @@ class CallStateMachine:
         if ep is None or ep.state != STATE_RINGING:
             raise CallError(f"{device_id} is not the ringing callee")
         at = self.now() if at is None else at
-        elapsed = at - (session.ring_started_at or at)
+        elapsed = at - (session.ring_started_at if session.ring_started_at is not None else at)
         if elapsed < RING_FLOOR_SECONDS:
             # D-DI-3 anti-ambush: too early, accept refused (device stays ringing).
             self.emit("accept_too_early", {"session": session_id, "device": device_id, "elapsed": elapsed})
@@ -331,12 +334,30 @@ class CallStateMachine:
         self._teardown(session, reason="hangup", at=at)
 
     def gc_tick(self, at: float | None = None) -> None:
-        """D-DI-5 max-duration kill-switch against forgotten open lines."""
+        """D-DI-5 max-duration kill-switch + ring timeout.
+
+        Two sweeps against leaked sessions:
+        - forgotten ACTIVE lines end at max_call_seconds (original D-DI-5),
+        - an unanswered RINGING session ends at ring_timeout_seconds. Without
+          this the caller endpoint stays STATE_DIALING forever (mid_call ->
+          busy) and every later dial from that dot is rejected. The failure
+          mode was live-observed 14 Oct 2026: a ring that never reached the
+          callee's dot stuck the caller in dialing; both dots dialable again
+          only after an HA restart. Default 30s; sessions carry their own
+          ring_started_at so nothing else tracks the deadline.
+        """
         at = self.now() if at is None else at
         for session in list(self.sessions.values()):
             if session.state == SESSION_ACTIVE and session.started_at is not None:
                 if at - session.started_at >= self.max_call_seconds:
                     self._teardown(session, reason="max_duration", at=at)
+            elif session.state == SESSION_RINGING:
+                if (
+                    self.ring_timeout_seconds > 0
+                    and session.ring_started_at is not None
+                    and at - session.ring_started_at >= self.ring_timeout_seconds
+                ):
+                    self._teardown(session, reason="ring_timeout", at=at)
 
     def drop(self, session_id: str, device_id: str) -> None:
         """A remote endpoint dropped (e.g. device offline).
