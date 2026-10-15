@@ -20,6 +20,20 @@
 #   while a call is ringing/active on that satellite; in idle state nothing
 #   here fires (see intent_router.py guard + tests).
 #
+#   LIVE ROUTE (card B, t_23673b6d — verified 15 Oct 2026): the
+#   DropInAnswer/DropInHangup intents below are NOT the live path.
+#   1. HA matches automation SENTENCE TRIGGERS before intents
+#      (default_agent._async_handle_message -> async_recognize_sentence_trigger),
+#      so "answer"/"hang up"/"stop" are consumed by
+#      tools/ha/dropin_voice_automations.yaml and never reach intent matching.
+#   2. `requires_context: dropin_state` can never be satisfied anyway: the
+#      default agent builds intent context from the satellite's AREA only
+#      (default_agent._make_intent_context returns {"area": <satellite area>}),
+#      so no integration can inject an arbitrary key.
+#   The intent YAML keeps requires_context as documented defence in depth;
+#   the ENFORCED guard is the code re-assert in runtime.voice_answer /
+#   voice_hangup + intent_router._require_call_session (idle => refused).
+#
 # Room slot values alias over Jag's LIVE HA area registry; the authoritative
 # list lives in area_aliases.json (fetched from config/area_registry 2026-10-11).
 # Wildcard slots are deliberately NOT used, so unknown rooms fail intent

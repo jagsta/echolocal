@@ -1,0 +1,104 @@
+# EchoLocal drop-in — voice dial / answer / hangup sentence-trigger automations.
+#
+# SOURCE OF TRUTH for the blocks deployed into Home Assistant's
+# /config/automations.yaml (card B, t_23673b6d; deployed 15 Oct 2026).
+#
+# WHY ONE AUTOMATION PER SENTENCE SET (not one per dot)
+# -----------------------------------------------------
+# Home Assistant merges the `command:` sentences of every `trigger: conversation`
+# automation into one hassil trigger set and then invokes a SINGLE matching
+# trigger registration, so two automations with identical `command:` lists are
+# mutually exclusive — only the first one ever runs.
+#
+# Verified live 15 Oct 2026 on the deployed stack:
+#   - while the KITCHEN dot rang, conversation "answer" ran the *lounge*
+#     automation (device hardcoded to the lounge dot -> refused, state=idle);
+#     automation.echolocal_drop_in_kitchen_answer had last_triggered = never.
+#     Disabling the lounge copy made the kitchen copy fire (and accept).
+#   - "intercom lounge" spoken at the kitchen dot logged
+#     "'intercom lounge' matched 1 trigger(s): ['HassSentenceTrigger0']",
+#     ran the lounge dial automation with trigger.device_id=<kitchen id>,
+#     whose condition failed -> aborted: the kitchen could not dial at all.
+#
+# Therefore: ONE device-agnostic automation per sentence set. The SPEAKING
+# satellite's device id is passed through (trigger.device_id; empty on a plain
+# conversation.process call) and the echolocal_dropin voice services resolve the
+# live session — runtime.DropInRuntime.resolve_endpoint_device prefers the
+# explicit device, else the area, else the single dot whose session sensor is
+# not idle — and re-assert the idle gate in code (voice_answer/voice_hangup).
+#
+# WHY NOT `requires_context: dropin_state`
+# ----------------------------------------
+# It cannot gate these utterances. HA's default agent builds intent context from
+# the satellite's AREA only (default_agent._make_intent_context returns
+# {"area": ...}; verified against HA core dev), so an arbitrary `dropin_state`
+# key can never be supplied — and sentence triggers are matched BEFORE intents,
+# so DropInAnswer/DropInHangup in custom_sentences/en/echolocal_dropin.yaml are
+# unreachable regardless. The live route is this automation + the code guard;
+# the intent YAML's requires_context stays as documented defence in depth.
+
+- id: echolocal_dropin_dial
+  alias: EchoLocal drop-in — dial (voice)
+  mode: single
+  max_exceeded: silent
+  trigger:
+  - platform: conversation
+    id: dropin
+    command:
+    - drop in on {room}
+    - dropping in on {room}
+    - dropping on {room}
+    - drop in on [the] {room}
+    - intercom {room}
+    - intercom [the] {room}
+  action:
+  - variables:
+      caller_device: '{{ trigger.device_id | default("", true) }}'
+      # The trigger slot is the RAW spoken text ("little lounge"); area ids are
+      # underscore-canonical ("little_lounge"), which is what the runtime's
+      # AREA_TO_DEVICE lookup keys on. Normalise here — a space-separated room
+      # resolves to no dot and wedges the caller in dialing until the ring
+      # timeout (live 15 Oct 16:26).
+      callee_area: '{{ trigger.slots.room | replace(" ", "_") | lower }}'
+  - action: echolocal_dropin.call
+    data:
+      caller_device: '{{ caller_device }}'
+      caller_room: '{{ area_id(caller_device) if caller_device else "" }}'
+      callee_device: echod-{{ callee_area }}
+      callee_room: '{{ callee_area }}'
+      session_id: di-{{ caller_device }}-{{ callee_area }}
+  - set_conversation_response: Dropping in on {{ callee_area | replace('_',' ') }}.
+
+- id: echolocal_dropin_answer
+  alias: EchoLocal drop-in — answer (voice)
+  mode: single
+  max_exceeded: silent
+  trigger:
+  - platform: conversation
+    id: answer
+    command:
+    - answer
+    - "[please] answer [the call]"
+  action:
+  - action: echolocal_dropin.voice_answer
+    data:
+      device: '{{ trigger.device_id | default("", true) }}'
+  - set_conversation_response: Answering.
+
+- id: echolocal_dropin_hangup
+  alias: EchoLocal drop-in — hang up (voice)
+  mode: single
+  max_exceeded: silent
+  trigger:
+  - platform: conversation
+    id: hangup
+    command:
+    - hang up
+    - "[please] hang up [the call]"
+    - stop
+    - stop [the] call
+  action:
+  - action: echolocal_dropin.voice_hangup
+    data:
+      device: '{{ trigger.device_id | default("", true) }}'
+  - set_conversation_response: Call ended.
