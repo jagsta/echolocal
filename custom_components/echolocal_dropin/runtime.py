@@ -36,6 +36,7 @@ from .const import (
     SERVICE_SET_PERMISSION,
     SERVICE_VOICE_ANSWER,
     SERVICE_VOICE_HANGUP,
+    SESSION_ACTIVE,
     SESSION_RINGING,
     STATE_IDLE,
     STATE_IN_CALL,
@@ -423,9 +424,11 @@ class DropInRuntime:
         Guarding:
         - only transitions INTO an accepted dot state (in-call/muted/joined)
           act; "ringing" is our OWN dial echo (dropin_dial painted the dot)
-          and accepting it would answer our own ring; "idle" is the dot
-          ending its own session, which this path deliberately does not
-          mirror (HA-side hangup/teardown is unchanged by this card).
+          and accepting it would answer our own ring.
+        - a transition INTO "idle" out of an accepted state is a dot-native
+          END (volume-down hangup, D-DI-5) and is mirrored into the HA machine
+          (see _dot_ended_session) — without that mirror the peer's leg closes
+          but its session/sensor/LED stay in-call until the 30-min reaper.
         - no ringing session for that callee (already ACTIVE, unknown, or
           this device is the caller) → ignore, so duplicate/late in-call
           paints, mute toggles, and the ring→in-call→muted sequence can never
@@ -443,7 +446,11 @@ class DropInRuntime:
         device_id = self._device_for_session_sensor(entity_id)
         if device_id is None:
             return None
-        if getattr(new_state, "state", None) not in DOT_SESSION_ACCEPTED:
+        new_value = getattr(new_state, "state", None)
+        if new_value not in DOT_SESSION_ACCEPTED:
+            if new_value == STATE_IDLE and \
+                    getattr(old_state, "state", None) in DOT_SESSION_ACCEPTED:
+                return self._dot_ended_session(device_id, entity_id, at=at)
             return None
         session = self._ringing_session_for_device(device_id)
         if session is None:
@@ -464,6 +471,66 @@ class DropInRuntime:
         _LOGGER.info(
             "drop-in dot accept: session=%s callee=%s sensor %s -> %s -> connect",
             session_id, device_id, getattr(old_state, "state", None), new_state.state,
+        )
+        return session_id
+
+    def _active_session_for_device(self, device_id: str) -> Any | None:
+        """The ONE ACTIVE session whose endpoint for this device is in-call."""
+        for session in self.machine.sessions.values():
+            if session.state != SESSION_ACTIVE:
+                continue
+            endpoint = session.endpoint(device_id)
+            if endpoint is not None and endpoint.state == STATE_IN_CALL:
+                return session
+        return None
+
+    def _dot_ended_session(self, device_id: str, entity_id: str | None,
+                           at: float | None = None) -> str | None:
+        """A dot painting idle mid-call IS a dot-initiated hangup (D-DI-5).
+
+        The dot's own hangup control is volume-down → wiring.Session.End
+        (wiring.go:210-222): the dot chimes down, closes its leg, paints its
+        session sensor idle — and HA is never told anything. The peer's leg
+        then dies on ICE teardown while its session, sensor, LED and turn stay
+        in-call with no audio until the max_call_seconds reaper (30 min); live
+        15 Oct 15:33/15:34, both roles (kitchen volume-down stranded the
+        lounge 34 s; lounge volume-down stranded the kitchen 13 s). D-DI-5
+        says a callee ends on 'hang up'/'stop'/button, so that stranding
+        contradicts a decided behaviour.
+
+        Mirror it through the SAME machine.hangup() path the HA service uses:
+        teardown → end chime + dropin_end for BOTH endpoints, peer sensor back
+        to idle, peer leg closed. Ordering is naturally idempotent — teardown
+        pops the session, so the HA-side teardown's own dropin_end (which
+        makes both dots repaint idle) finds no ACTIVE session left and the
+        dot-idle paints it produces are dropped here.
+
+        Guarding: only an accepted-state → idle transition acts (a ringing →
+        idle paint is the dot declining our own dial echo / its ring timeout,
+        which the machine's own ring_timeout already ends), and only while the
+        device's endpoint is genuinely in-call on an ACTIVE session. A dot
+        that republishes idle while idle (boot, reconnect, unavailable →
+        idle) therefore can never end anything.
+        """
+        session = self._active_session_for_device(device_id)
+        if session is None:
+            _LOGGER.debug(
+                "drop-in dot end ignored: no active session for %s (sensor=%s)",
+                device_id, entity_id,
+            )
+            return None
+        session_id = session.session_id
+        try:
+            self.machine.hangup(session_id, device_id, at=at)
+        except CallError as err:
+            _LOGGER.info(
+                "drop-in dot end ignored (session=%s device=%s): %s",
+                session_id, device_id, err,
+            )
+            return None
+        _LOGGER.info(
+            "drop-in dot end: session=%s device=%s sensor %s -> idle -> teardown",
+            session_id, device_id, entity_id,
         )
         return session_id
 
