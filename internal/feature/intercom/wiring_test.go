@@ -213,6 +213,88 @@ func TestMuteTransmitGuardVariables(t *testing.T) {
 	}
 }
 
+// TestMuteFlagResetsOnTeardownAndAccept pins the t_14649d19 fix at the wiring
+// boundary: i.muted is process-global — the only writer is ToggleMute, and
+// pump() drops every frame while it is set — so it must be cleared on every
+// Idle-from-active teardown AND re-asserted at Accept. The regression: mute
+// in-call, hang up, join again ⇒ the pump guard drops nothing (before the
+// fix, i.muted stayed true and every later call was silent both ways).
+func TestMuteFlagResetsOnTeardownAndAccept(t *testing.T) {
+	i := &Intercom{session: New(30 * time.Minute), status: &esphome.TextSensor{}}
+	i.turnOps = func() {}
+	i.wire()
+	s := i.session
+
+	// Call 1: join, mute in-call. CallerJoin straight from Idle mirrors HA's
+	// connect on the caller dot; the wire-installed teardown subscriber and
+	// Accept's resetMute cover both reset paths.
+	if _, ok := s.CallerJoin(); !ok {
+		t.Fatal("join refused")
+	}
+	if got, ok := s.Mute(true); !ok || got != Muted {
+		t.Fatalf("mute: got %q ok=%v, want muted", got, ok)
+	}
+	i.mu.Lock()
+	i.muted = true // mirrors wiring.ToggleMute's flag flip
+	i.mu.Unlock()
+
+	// End the call. The teardown subscriber must clear the flag (and bring
+	// the session's muted sub-state back to InCall before the Idle emit).
+	if !s.End("hangup") {
+		t.Fatal("end refused")
+	}
+	i.mu.Lock()
+	stale := i.muted
+	i.mu.Unlock()
+	if stale {
+		t.Fatal("i.muted survived teardown — the next call would be silent (t_14649d19)")
+	}
+
+	// Call 2 on the same (pre-fix poisoned) flag: join again — resetMute at
+	// CallerConnect re-asserts transmit-off is cleared — and the pump guard
+	// condition must now transmit.
+	if _, ok := s.CallerJoin(); !ok {
+		t.Fatal("second join refused")
+	}
+	i.mu.Lock()
+	i.muted = true // simulate a stale flag from call 1 (pre-fix shape)
+	i.mu.Unlock()
+	i.resetMute("caller-connect")
+	if i.muted {
+		t.Fatal("resetMute at caller-connect left i.muted set")
+	}
+	if m := i.muted || i.session.Now() == Idle; m {
+		t.Fatal("pump guard must transmit in call 2 after the mute/teardown cycle")
+	}
+	if i.session.Now() != InCall {
+		t.Fatalf("state in call 2 = %q, want in-call", i.session.Now())
+	}
+}
+
+// TestAcceptResetsStaleMutedFlag asserts the belt at Accept (the wiring
+// method, not the session machine): a muted flag left over from a previous
+// call (e.g. a teardown that skipped the subscriber) is cleared when the next
+// call is accepted, before any frames can be dropped.
+func TestAcceptResetsStaleMutedFlag(t *testing.T) {
+	i := &Intercom{session: New(30 * time.Minute), status: &esphome.TextSensor{}}
+	i.wire()
+	s := i.session
+	i.mu.Lock()
+	i.muted = true // stale flag from a previous (unterminated) call
+	i.mu.Unlock()
+
+	start := time.Now()
+	s.clock = func() time.Time { return start }
+	if !s.Ring() {
+		t.Fatal("ring refused")
+	}
+	s.clock = func() time.Time { return start.Add(RingFloor + time.Second) }
+	i.Accept() // wiring entry: resetMute runs before StartTurn (which fails, no subscriber → dropped)
+	if i.muted {
+		t.Fatal("Accept did not clear a stale muted flag (pump would drop all frames)")
+	}
+}
+
 // TestWireAssignsVS pins the assignment itself (round-3 secondary): wire() must
 // set i.vs from voice.Get().VS(), so a future regression that removes the
 // assignment is caught here rather than only in Accept/releaseTurn runtime paths.

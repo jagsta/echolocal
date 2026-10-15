@@ -143,6 +143,14 @@ func (i *Intercom) wire() {
 
 	// HA-visible session state.
 	s.Changed = append(s.Changed, func(from, to State) {
+		// D-DI-6 mute flag reset (15 Oct defect t_14649d19): i.muted is
+		// process-global, so a mute left on at teardown gated every later
+		// call's pump at zero frames — silent both ways until restart. The
+		// flag dies with the call: reset it here (teardown) and re-assert at
+		// each call-open entry point (resetMute).
+		if from != Idle && to == Idle {
+			i.resetMute("teardown")
+		}
 		i.status.Set(string(to))
 		i.show(to)
 	})
@@ -301,6 +309,7 @@ func (i *Intercom) Accept() {
 		i.chime("intercom_refused", sharedtone.ToneCancel)
 		return
 	}
+	i.resetMute("accept")
 	if err := i.vs.StartTurn("", nil); err != nil {
 		slog.Error("intercom turn open failed", "err", err)
 		s.End("dropped")
@@ -325,6 +334,7 @@ func (i *Intercom) CallerConnect() {
 		slog.Debug("intercom caller connect refused", "state", state)
 		return
 	}
+	i.resetMute("caller-connect")
 	if err := i.vs.StartTurn("", nil); err != nil {
 		slog.Error("intercom caller turn open failed", "err", err)
 		s.End("dropped")
@@ -394,6 +404,29 @@ func (i *Intercom) ToggleMute() {
 	i.mu.Unlock()
 	i.session.Mute(muted)
 	slog.Info("intercom mic", "muted", muted)
+}
+
+// resetMute clears the process-global transmit-off flag and re-paints the LED
+// for the current state (t_14649d19): i.muted has exactly one writer pair —
+// ToggleMute — and, before this fix, nothing cleared it, so a mute left on at
+// teardown silenced every following call (pump() drops all frames while
+// muted) while HA's per-session muted sub-state and the LED looked healthy.
+// Called on every transition into Idle (teardown) and asserted at each
+// call-open entry point (Accept, CallerConnect). If the session still reports
+// a muted sub-state (a Muted state left over from a racing teardown), the
+// session is brought back to InCall so the state machine and the flag agree.
+func (i *Intercom) resetMute(why string) {
+	i.mu.Lock()
+	was := i.muted
+	i.muted = false
+	i.mu.Unlock()
+	if was {
+		i.session.Mute(false)
+		slog.Info("intercom mute flag reset", "why", why)
+	}
+	// Re-paint: after teardown the LED is cleared by show(Idle) anyway; at
+	// Accept/CallerConnect the fresh InCall paint follows immediately, so
+	// nothing extra is needed here beyond clearing a stale amber.
 }
 
 // show maps state onto the existing LED conventions (D-DI-5): ring pulse →
