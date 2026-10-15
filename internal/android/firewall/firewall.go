@@ -31,6 +31,10 @@ func acceptRule(chain string, port int) []string {
 	return []string{chain, "-i", iface, "-p", "tcp", "--dport", fmt.Sprint(port), "-j", "ACCEPT"}
 }
 
+func rejectRule(chain string, port int) []string {
+	return []string{chain, "-i", iface, "-p", "tcp", "--dport", fmt.Sprint(port), "-j", "REJECT"}
+}
+
 func udpRangeRule(chain string, lo, hi int) []string {
 	return []string{chain, "-i", iface, "-p", "udp", "--dport", fmt.Sprintf("%d:%d", lo, hi), "-j", "ACCEPT"}
 }
@@ -89,6 +93,28 @@ func Close(chain string) error {
 
 func Opened(chain string, port int) (bool, error) {
 	return has(acceptRule(chain, port))
+}
+
+// Reject flushes the chain then appends an explicit REJECT for the port.
+// An empty chain is NOT a closed port: Amazon's firewall.sh carries its own
+// ACCEPT for tcp 5555 directly in INPUT, so a closed network adb needs an
+// active deny that the jumped chain reaches before the stock rule.
+// The jump rule sits at INPUT position 1, so the chain sees the packet first.
+func Reject(chain string, port int) error {
+	ready.Lock()
+	defer ready.Unlock()
+
+	if err := ensure(chain); err != nil {
+		return err
+	}
+	if err := iptablesRun("-F", chain); err != nil {
+		return err
+	}
+	return iptablesRun(append([]string{"-A"}, rejectRule(chain, port)...)...)
+}
+
+func Rejected(chain string, port int) (bool, error) {
+	return has(rejectRule(chain, port))
 }
 
 // firewall.sh flushes INPUT once the boot completes; the chains and their contents survive.

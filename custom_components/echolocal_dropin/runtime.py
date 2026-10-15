@@ -29,6 +29,9 @@ from .const import (
     SERVICE_CALL,
     SERVICE_HANGUP,
     SERVICE_SET_PERMISSION,
+    SERVICE_VOICE_ANSWER,
+    SERVICE_VOICE_HANGUP,
+    STATE_IDLE,
     STATE_IN_CALL,
     STATE_RINGING,
 )
@@ -100,6 +103,15 @@ class DropInRuntime:
         self.hass.services.async_register(DOMAIN, SERVICE_ACCEPT, handle_accept)
         self.hass.services.async_register(DOMAIN, SERVICE_HANGUP, handle_hangup)
         self.hass.services.async_register(DOMAIN, SERVICE_SET_PERMISSION, handle_set_permission)
+
+        async def handle_voice_answer(call: ServiceCall) -> None:
+            await self.hass.async_add_executor_job(self.voice_answer, call.data)
+
+        async def handle_voice_hangup(call: ServiceCall) -> None:
+            await self.hass.async_add_executor_job(self.voice_hangup, call.data)
+
+        self.hass.services.async_register(DOMAIN, SERVICE_VOICE_ANSWER, handle_voice_answer)
+        self.hass.services.async_register(DOMAIN, SERVICE_VOICE_HANGUP, handle_voice_hangup)
 
         # Card A fix (live failure 14 Oct): the machine only reaped ACTIVE
         # sessions at max_duration via nothing at all — gc_tick existed but no
@@ -239,6 +251,81 @@ class DropInRuntime:
         if state in (STATE_RINGING, STATE_IN_CALL) or state in ("ringing", "in-call", "muted", "joined"):
             return {"dropin_state": state}
         return {}
+
+    def resolve_endpoint_device(self, device_id: str | None, room: str | None) -> str | None:
+        """Resolve the drop-in device driving an answer/hangup utterance.
+
+        Card A (run 90): HA's default agent builds intent recognition context
+        from ONLY the satellite's area (default_agent._make_intent_context);
+        arbitrary requires_context keys like dropin_state can never be
+        supplied, and sentence-trigger matching in automations runs with no
+        context at all — so answer/hangup MUST be gated here against the
+        dot's own session state, keyed by whichever endpoint drove the
+        utterance. Prefers the explicit device id, else the dot in ``room``,
+        else the single dot with a non-idle session sensor."""
+        if device_id is not None and dot_for(device_id) is not None:
+            return device_id
+        if room:
+            resolved = AREA_TO_DEVICE.get(str(room))
+            if resolved is not None:
+                return resolved
+        for candidate, _facts in _all_dots().items():
+            if self.endpoint_session_state(candidate) not in (STATE_IDLE, "unavailable", "unknown"):
+                return candidate
+        return None
+
+    def voice_answer(self, data: dict[str, Any]) -> None:
+        """'answer' spoken at a dot (automation conversation-trigger path).
+        The DROPIN_STATE_CONTEXT_KEY gate lives HERE (code, not YAML):
+        refused in idle; accepted only while that dot's session is ringing,
+        after which machine.accept enforces the ring floor (D-DI-3)."""
+        device_id = self.resolve_endpoint_device(
+            data.get("device") or data.get("caller_device"), data.get("room"),
+        )
+        if device_id is None:
+            _LOGGER.info("drop-in answer refused: no ringing dot")
+            return
+        state = self.endpoint_session_state(device_id)
+        if state != "ringing":
+            _LOGGER.info("drop-in answer refused for %s: state=%s", device_id, state)
+            return
+        self._answer_service({"device": device_id})
+
+    def voice_hangup(self, data: dict[str, Any]) -> None:
+        """'hang up'/'stop' spoken at a dot in ringing/in-call (automation
+        conversation-trigger path); refused in idle (stop-as-hangup
+        ambiguity bounded by the guard, D-DI-5)."""
+        device_id = self.resolve_endpoint_device(
+            data.get("device") or data.get("caller_device"), data.get("room"),
+        )
+        if device_id is None:
+            _LOGGER.info("drop-in hangup refused: no active call")
+            return
+        state = self.endpoint_session_state(device_id)
+        if state not in ("ringing", "in-call", "joined"):
+            _LOGGER.info("drop-in hangup refused for %s: state=%s", device_id, state)
+            return
+        self._voice_hangup_service({"device": device_id})
+
+    def _answer_service(self, data: dict[str, Any]) -> None:
+        """Accept by the DEVICE-side session resolution: find the session
+        whose endpoint is ``device_id`` — the intent path's session-id free
+        contract (the caller of 'answer' never knows the session id)."""
+        device_id = str(data["device"])
+        for session_id, session in self.machine.sessions.items():
+            if session.endpoint(device_id) is not None:
+                self.machine.accept(session_id, device_id)
+                return
+        raise CallError(f"no session contains {device_id}")
+
+    def _voice_hangup_service(self, data: dict[str, Any]) -> None:
+        device_id = str(data["device"])
+        for session_id in list(self.machine.sessions):
+            session = self.machine.sessions[session_id]
+            if session.endpoint(device_id) is not None:
+                self.machine.hangup(session_id, device_id)
+                return
+        raise CallError(f"no session contains {device_id}")
 
     def call_or_report_offline(self, data: dict[str, Any]) -> None:
         """Accepted-risk path (D-DI-6): offline-at-dial gives the CALLER

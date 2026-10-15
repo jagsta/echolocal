@@ -46,6 +46,8 @@ SERVICE_CALL = "call"
 SERVICE_ACCEPT = "accept"
 SERVICE_HANGUP = "hangup"
 SERVICE_SET_PERMISSION = "set_permission"
+SERVICE_VOICE_ANSWER = "voice_answer"
+SERVICE_VOICE_HANGUP = "voice_hangup"
 
 # D-DI-8 card 6: phone/web caller identity convention. An unregistered web
 # caller posts its offer with source id "phone:<display-name>"; it is treated

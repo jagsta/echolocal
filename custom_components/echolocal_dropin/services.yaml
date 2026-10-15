@@ -30,6 +30,26 @@ accept:
       required: true
       selector:
         text:
+voice_answer:
+  fields:
+    device:
+      required: false
+      selector:
+        text:
+    room:
+      required: false
+      selector:
+        text:
+voice_hangup:
+  fields:
+    device:
+      required: false
+      selector:
+        text:
+    room:
+      required: false
+      selector:
+        text:
 hangup:
   fields:
     session_id:

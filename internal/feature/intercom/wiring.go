@@ -320,7 +320,7 @@ func (i *Intercom) chime(name string, notes []sharedtone.Note) {
 	speaker.Sound().Interject(func(p *speaker.Player) {
 		p.Chime(config.StreamFeedback, sharedtone.Level, notes...)
 	})
-	slog.Debug("intercom chime", "name", name)
+	slog.Info("intercom chime", "name", name)
 }
 
 // pump streams captured mic frames into the open call turn. Muted or idle,

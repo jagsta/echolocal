@@ -2,6 +2,7 @@ package diag
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/ygelfand/libcountertop/pkg/system/metrics"
 
 	"github.com/ygelfand/echolocal/internal/android/firewall"
+	"github.com/ygelfand/echolocal/internal/android/prop"
 	"github.com/ygelfand/echolocal/internal/android/setup"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
@@ -100,6 +102,7 @@ func Get() *Diag {
 		shared.playback()
 		shared.identity()
 		shared.collector()
+		settingsOnce.Do(func() { SettingsShared() })
 
 		component.Subscribed.Listen(func(struct{}) { shared.soon() })
 	})
@@ -172,6 +175,14 @@ func (d *Diag) soon() {
 }
 
 func (d *Diag) Run(ctx context.Context) error {
+	// Amazon's firewall.sh flushes INPUT once boot completes, after Restore()
+	// has already applied the saved switch: re-arm here so the OFF reject
+	// (or the ON accept) is live for the whole resident phase, in the
+	// component-run arming shape (card-14 rule: never Go-init-only).
+	if err := d.reachable(d.ADB()); err != nil {
+		slog.Error("re-arming remote adb failed", "open", d.ADB(), "err", err)
+	}
+
 	return collector.Run(
 		ctx,
 		func() time.Duration { return time.Duration(config.Get().Diag.Interval) * time.Second },
@@ -237,9 +248,9 @@ func (d *Diag) SetADB(on bool) {
 }
 
 func (d *Diag) reachable(on bool) error {
-	change, what := func() error { return firewall.Close(firewall.ADB) }, "closing"
+	change, what := func() error { return networkAdbClosed() }, "closing"
 	if on {
-		change, what = func() error { return firewall.Open(firewall.ADB, adbPort) }, "opening"
+		change, what = func() error { return networkAdbOpened() }, "opening"
 	}
 
 	if err := change(); err != nil {
@@ -249,6 +260,68 @@ func (d *Diag) reachable(on bool) error {
 
 	slog.Warn("remote adb", "open", on, "port", adbPort)
 	d.adb.Set(on)
+	return nil
+}
+
+// networkAdbOpened makes network adb reachable. Both the firewall accept (the
+// ECHOLOCAL_ADB chain, jumped before the stock rules in INPUT) and adbd
+// listening on tcp:5555 are required: the boot image sets
+// service.adb.tcp.port and starts adbd, but Amazon's firewall.sh carries the
+// only input rule for 5555, which the echod chain must be allowed to coexist
+// with rather than replace (card E).
+func networkAdbOpened() error {
+	if err := firewall.Open(firewall.ADB, adbPort); err != nil {
+		return err
+	}
+	if err := adbdListen(true); err != nil {
+		return err
+	}
+	opened, err := firewall.Opened(firewall.ADB, adbPort)
+	if err != nil {
+		return err
+	}
+	if !opened {
+		return fmt.Errorf("the %s chain lacks its accept rule after opening", firewall.ADB)
+	}
+	return nil
+}
+
+// networkAdbClosed makes network adb genuinely unreachable. Neither of the
+// two halves alone is enough on this FireOS build: adbd listens on 5555
+// unconditionally regardless of the service.adb.tcp.port value, and an empty
+// or missing echod chain still leaves Amazon's own ACCEPT for 5555 in INPUT.
+// So closed means: an explicit REJECT in ECHOLOCAL_ADB (the chain is jumped at
+// INPUT position 1, ahead of the stock accepts) AND adbd stopped.
+func networkAdbClosed() error {
+	if err := firewall.Reject(firewall.ADB, adbPort); err != nil {
+		return err
+	}
+	return adbdListen(false)
+}
+
+func adbdListen(tcp bool) error {
+	what := "-1"
+	if tcp {
+		what = fmt.Sprint(adbPort)
+	}
+	// The property decides the mode adbd restarts in; restart to apply it.
+	if err := prop.Set("service.adb.tcp.port", what); err != nil {
+		return err
+	}
+	if err := prop.Restart("adbd"); err != nil {
+		return err
+	}
+
+	port, err := prop.Get("service.adb.tcp.port")
+	if err != nil {
+		return err
+	}
+	if tcp && port != fmt.Sprint(adbPort) {
+		return fmt.Errorf("service.adb.tcp.port is %q, want %d", port, adbPort)
+	}
+	if !tcp && port == fmt.Sprint(adbPort) {
+		return fmt.Errorf("service.adb.tcp.port still %q after closing", port)
+	}
 	return nil
 }
 

@@ -42,4 +42,9 @@ var (
 		func() *storage.Store[Config] { return store().Store },
 		func(c *Config) *Intercom { return &c.Intercom },
 	)
+
+	DiagSection = storage.Bind(
+		func() *storage.Store[Config] { return store().Store },
+		func(c *Config) *Diag { return &c.Diag },
+	)
 )
