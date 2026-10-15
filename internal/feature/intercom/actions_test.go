@@ -14,11 +14,10 @@ import (
 // be sent dropin_connect without a peer (and must never offer, D-P2P-5) —
 // its join now rides the peerless dropin_answer action.
 //
-// The shared VoiceSatellite has no HA subscriber in tests, so StartTurn fails
-// (the same unpaired-dot condition TestConnectWithoutPeerStartsNoLeg uses) and
-// the join ends the session "dropped" back to Idle. The joins ARE pinned: the
-// InCall transition is only reachable through CallerJoin, and the pytest-side
-// callee-args contract plus the live E2E pin the InCall paint.
+// D-P2P-8 fix (t_a6a749f2): on p2p the join opens NO ESPHome voice turn (a
+// turn would open a full assist pipeline whose STT is a cloud stream), so the
+// join lands in InCall with no satellite touch and no leg — the callee only
+// ever answers offers.
 func TestDropinAnswerJoinsCallee(t *testing.T) {
 	i := &Intercom{session: New(time.Minute), status: &esphome.TextSensor{}, play: func([]int16) {}}
 	i.vs = voice.Get().VS()
@@ -29,15 +28,36 @@ func TestDropinAnswerJoinsCallee(t *testing.T) {
 	if i.activeLeg() != nil {
 		t.Fatal("dropin_answer started an offer leg — the callee must only answer")
 	}
-	// The join transition ran: the dropped teardown proves CallerJoin fired
-	// (InCall is only reachable via CallerJoin) and the turn-open failure
-	// teardown released cleanly — never wedged InCall.
-	if i.session.Now() != Idle {
-		t.Fatalf("peerless join wedged the session in %s", i.session.Now())
+	if i.session.Now() != InCall {
+		t.Fatalf("peerless join did not join: state=%s", i.session.Now())
 	}
-	// And a refused-then-recovered machine still rings fresh afterwards.
+	// Teardown still releases cleanly after a turn-less join.
+	if !i.session.End("hangup") {
+		t.Fatal("end refused")
+	}
+	// And a ended-then-recovered machine still rings fresh afterwards.
 	if !i.session.Ring() {
-		t.Fatal("ring refused after a dropped join")
+		t.Fatal("ring refused after an ended join")
+	}
+}
+
+// TestAcceptOnHarelaysStillOpensTurnAndDropsOnFailure pins the retained v1
+// half: on the mothballed harelays transport the voice turn IS the audio
+// transport, so join still opens it — and a failed open (no HA subscriber)
+// ends the session "dropped" rather than leaving a silent in-call.
+func TestAcceptOnHarelaysStillOpensTurnAndDropsOnFailure(t *testing.T) {
+	i := &Intercom{session: New(time.Minute), status: &esphome.TextSensor{}, play: func([]int16) {}}
+	i.vs = voice.Get().VS() // no HA subscriber: StartTurn fails
+	i.setTransport(transportHARelays)
+	if !i.session.Ring() {
+		t.Fatal("ring refused")
+	}
+	i.CalleeJoin("di-1", "harelays")
+	if i.activeLeg() != nil {
+		t.Fatal("join created a leg")
+	}
+	if i.session.Now() != Idle {
+		t.Fatalf("failed turn open must drop the session, got %s", i.session.Now())
 	}
 }
 

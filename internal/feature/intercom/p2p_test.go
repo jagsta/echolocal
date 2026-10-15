@@ -453,11 +453,11 @@ func TestLegClosesOnSessionEnd(t *testing.T) {
 // TestConnectWithoutPeerStartsNoLeg pins the callee/peerless shape: a connect
 // with transport=p2p but no peer arg (the callee — per D-P2P-5 the caller
 // always offers) creates no leg; the callee only ever answers. It also pins
-// that a leg is never started on a session whose turn never opened (a connect
-// that dropped, as on an unpaired dot).
+// the D-P2P-8 fix's leg gate: on p2p the join opens no turn, and the leg start
+// must not have keyed on turnOpen — the session joining IS the readiness.
 func TestConnectWithoutPeerStartsNoLeg(t *testing.T) {
 	i := &Intercom{session: New(time.Minute), status: &esphome.TextSensor{}, play: func([]int16) {}}
-	i.vs = voice.Get().VS() // no HA subscriber in tests: StartTurn fails, like an unpaired dot
+	i.vs = voice.Get().VS()
 	i.setTransport(transportP2P)
 	if !i.session.Ring() {
 		t.Fatal("ring refused")
@@ -466,12 +466,18 @@ func TestConnectWithoutPeerStartsNoLeg(t *testing.T) {
 	if i.activeLeg() != nil {
 		t.Fatal("peerless connect created a leg — the callee must only answer")
 	}
-	// Same dot, but now "the caller": the turn open failed above, so the
-	// session is gone and no leg may be started against it.
+	// The dot-native connect with a peer starts the leg from the LIVE session
+	// alone: no turn exists on p2p and none may be required.
 	i.CallerConnectTo("di-1", "kitchen-dot.jagbains.org", transportP2P)
-	if i.activeLeg() != nil {
-		t.Fatal("leg started on a session whose turn never opened")
+	deadline := time.Now().Add(3 * time.Second)
+	for i.activeLeg() == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
+	leg, ok := i.activeLeg().(*dotLeg)
+	if !ok || leg == nil {
+		t.Fatal("peer connect did not start the caller leg (turn gate must not block p2p)")
+	}
+	i.clearLeg()
 }
 
 // TestPlayIntercomPushConverts pins the F1 fix at the wiring site (review of

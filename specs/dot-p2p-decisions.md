@@ -103,6 +103,15 @@ early because the v1 prerequisite (HA frame inlet) turned out to be unsound.
   voice.SetGuard) — the P2P leg introduces nothing new; the assistant-hijack
   failure mode disappears because no ESPHome voice turn is used for call audio
   at all.
+  Corrected 15 Oct (live defect t_a6a749f2): holding NO audio out of the turn
+  was not enough — the turn itself was still OPENED on accept/connect for all
+  transports, and HA answers every turn by opening a full assist pipeline
+  whose STT is a CLOUD stream (one 400/stt-stream-failed round-trip per call;
+  the turn is also the "device is being listened to" surface). The decision
+  now reads: **the ESPHome voice turn is not opened at all on p2p** — it
+  exists solely as the harelays transport's audio path (wiring.openCallTurn);
+  wake suppression does not depend on the turn (detect.PauseWhen +
+  voice.SetGuard carry it).
 
 ## Implementation notes (for the executing card)
 

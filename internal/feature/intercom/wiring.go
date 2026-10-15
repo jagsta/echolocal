@@ -310,14 +310,41 @@ func (i *Intercom) Accept() {
 		return
 	}
 	i.resetMute("accept")
+	// D-P2P-8 fix (t_a6a749f2): the turn is the v1 RELAY's audio transport
+	// (and the mute/LED/session choreography never needed it). Opening it
+	// makes HA open a full assist pipeline whose STT is a CLOUD stream —
+	// on p2p the pipeline gets zero audio and dies in Nabu with 400 /
+	// stt-stream-failed, one cloud STT round-trip per call. Open the turn
+	// only on the mothballed harelays transport.
+	if !i.openCallTurn() {
+		return
+	}
+}
+
+// openCallTurn starts the ESPHome voice turn when the session's transport
+// needs one (harelays only; p2p call audio rides the direct leg and the
+// assistant pipeline must stay closed). Returns true when the call may
+// proceed (turn irrelevant or successfully opened); false means the caller is
+// responsible for not marking the turn open (Accept/CallerConnect drop the
+// session here). Wake suppression does not depend on this turn at either
+// transport: detect.PauseWhen + voice.SetGuard carry it (D-DI-5).
+func (i *Intercom) openCallTurn() bool {
+	i.mu.Lock()
+	harelays := i.transport == transportHARelays // "" = unset = p2p default (D-P2P-7)
+	i.mu.Unlock()
+	if !harelays {
+		slog.Debug("intercom turn not opened", "transport", "p2p")
+		return true
+	}
 	if err := i.vs.StartTurn("", nil); err != nil {
 		slog.Error("intercom turn open failed", "err", err)
-		s.End("dropped")
-		return
+		i.session.End("dropped")
+		return false
 	}
 	i.mu.Lock()
 	i.turnOpen = true
 	i.mu.Unlock()
+	return true
 }
 
 // CallerConnect is the caller-side counterpart of Accept (card A,
@@ -335,16 +362,11 @@ func (i *Intercom) CallerConnect() {
 		return
 	}
 	i.resetMute("caller-connect")
-	if err := i.vs.StartTurn("", nil); err != nil {
-		slog.Error("intercom caller turn open failed", "err", err)
-		s.End("dropped")
+	if !i.openCallTurn() {
 		// Match Accept(): the session is already gone — do NOT fall through
 		// and mark the turn open on a dropped session.
 		return
 	}
-	i.mu.Lock()
-	i.turnOpen = true
-	i.mu.Unlock()
 }
 
 // CalleeJoin is the CALLEE-side HA-driven join under P2P (t_01e7db90): HA
@@ -384,7 +406,8 @@ func (i *Intercom) CallerConnectTo(session, peer, transport string) {
 		return
 	}
 	i.mu.Lock()
-	live := i.session.Now() != Idle && i.turnOpen
+	harelays := i.transport == transportHARelays
+	live := i.session.Now() != Idle && (i.turnOpen || !harelays)
 	i.mu.Unlock()
 	if !live {
 		// CallerJoin refused (duplicate connect on an InCall dot) or the turn
