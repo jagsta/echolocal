@@ -138,11 +138,19 @@ class DropInRuntime:
         callee_device = str(data["callee_device"])
         # Card A: automations may still send the aspirational echod-<area>
         # slug for a room without a pinned device; resolve to the real
-        # assist-satellite device id so the dot transport can find it.
+        # assist-satellite device id so the dot transport can find it. Both
+        # endpoints need this: the caller's slug also reaches _dot_action()
+        # via the connect/teardown endpoint lists (dot_for(slug) is None —
+        # live 15 Oct: caller's session sensor never left idle because the
+        # lounge dot never received dropin_connect).
         if dot_for(callee_device) is None:
             resolved = AREA_TO_DEVICE.get(str(data.get("callee_room") or ""))
             if resolved is not None:
                 callee_device = resolved
+        if dot_for(caller_device) is None:
+            resolved = AREA_TO_DEVICE.get(str(data.get("caller_room") or ""))
+            if resolved is not None:
+                caller_device = resolved
         session_id = str(data.get("session_id") or f"di-{caller_device}-{callee_device}")
         self.machine.call(
             session_id,
