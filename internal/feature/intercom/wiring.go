@@ -23,11 +23,10 @@ package intercom
 import (
 	"context"
 	"encoding/binary"
+	esphome "github.com/ygelfand/go-esphome-device"
 	"log/slog"
 	"sync"
 	"time"
-
-	esphome "github.com/ygelfand/go-esphome-device"
 
 	sharedtone "github.com/ygelfand/libcountertop/pkg/audio/tone"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
@@ -63,9 +62,26 @@ type Intercom struct {
 	muted    bool // physical mic transmit off in-call (D-DI-6)
 	turnOpen bool
 
+	// transport selects where call audio travels (D-P2P-7): "p2p" (default,
+	// the direct leg) or "harelays" (the mothballed HA relay). It gates the
+	// mic pump's fallback to the ESPHome voice turn — post-P2P no call audio
+	// may ride a voice turn, which is the assistant-hijack failure mode that
+	// killed the v1 relay (D-P2P-8).
+	transport string
+
+	// leg is the live direct media leg (D-P2P-4). Non-nil means the direct
+	// path owns call audio; teardown closes it on every transition to Idle.
+	leg mediaLeg
+
 	// turnOps is swappable so tests can release the turn without a live
 	// satellite; nil wires the real VoiceSatellite EndAudio/StopTurn.
 	turnOps func()
+
+	// play is the inbound-audio sink (config.StreamIntercom in production);
+	// post is the offer POST used by the caller side. Both are injectable so
+	// the leg can be exercised without hardware or a TLS listener.
+	play func([]int16)
+	post func(ctx context.Context, peer string, m dotOfferMsg) (string, error)
 
 	streams []<-chan []int16
 }
@@ -142,6 +158,16 @@ func (i *Intercom) wire() {
 	// Run end/error event — a leaked turn bricks the assistant path with
 	// ErrTurnInProgress once wake suppression lifts at Idle.
 	i.watchTurnRelease(i.releaseTurn)
+
+	// D-P2P-2/7: the direct media leg dies with the session, on the same
+	// every-transition-to-Idle hook that releases the turn (hangup from
+	// either dot, kill-switch expiry, dropped) — the releaseTurn teardown
+	// itself is untouched.
+	i.session.Changed = append(i.session.Changed, func(from, to State) {
+		if from != Idle && to == Idle {
+			i.clearLeg()
+		}
+	})
 
 	s.Ended = append(s.Ended, func(reason string) {
 		slog.Info("intercom call self-ended", "reason", reason)
@@ -283,6 +309,35 @@ func (i *Intercom) CallerConnect() {
 	i.mu.Unlock()
 }
 
+// CallerConnectTo is the D-P2P entry point for the connect event: CallerConnect
+// plus the transport/peer facts HA now sends on dropin_connect (D-P2P-2/5/7).
+//
+// The dot that receives a peer host is the CALLER (D-P2P-5: the caller always
+// offers; the callee only ever answers). The callee gets transport but no
+// peer, so it simply arms itself and waits for the inbound offer on
+// /call/dotoffer — which its session gate authorizes. On the mothballed
+// harelays transport nothing here starts; the v1 relay path is unchanged.
+func (i *Intercom) CallerConnectTo(session, peer, transport string) {
+	i.setTransport(transportOf(transport))
+	i.CallerConnect()
+	if transportOf(transport) != transportP2P || peer == "" {
+		if peer == "" && transportOf(transport) == transportP2P {
+			slog.Debug("intercom connect without peer", "session", session, "err", errNoPeer)
+		}
+		return
+	}
+	i.mu.Lock()
+	live := i.session.Now() != Idle && i.turnOpen
+	i.mu.Unlock()
+	if !live {
+		// CallerJoin refused (duplicate connect on an InCall dot) or the turn
+		// could not be opened: there is no session to hang a leg on.
+		slog.Debug("intercom leg skipped", "session", session, "state", string(i.session.Now()))
+		return
+	}
+	go i.startCallerLeg(session, peer)
+}
+
 // ToggleMute flips mic transmit off/on in-call (D-DI-6); mute keeps the turn
 // open but stops pumping frames.
 func (i *Intercom) ToggleMute() {
@@ -329,9 +384,17 @@ func (i *Intercom) chime(name string, notes []sharedtone.Note) {
 	slog.Info("intercom chime", "name", name)
 }
 
-// pump streams captured mic frames into the open call turn. Muted or idle,
+// pump streams captured mic frames into the call's audio path. Muted or idle,
 // frames are drained and discarded so the listener never backs up (the
 // fan-out keeps every frame for slow listeners otherwise).
+//
+// Routing (D-P2P-7/8): a live direct leg owns call audio and the ESPHome
+// voice turn gets NOTHING. The turn is still opened (D-P2P-7: mute/LED/session
+// work is transport-agnostic) but carrying call audio on it is exactly what
+// let HA's assist pipeline treat the call as an ordinary assistant turn —
+// `heard …/replying …` during a call, the v1 relay's death (D-P2P-8). The
+// turn is only fed on the mothballed harelays transport, and never while the
+// session is p2p.
 func (i *Intercom) pump(frames <-chan []int16, vs *esphome.VoiceSatellite) {
 	for frame := range frames {
 		i.mu.Lock()
@@ -339,6 +402,24 @@ func (i *Intercom) pump(frames <-chan []int16, vs *esphome.VoiceSatellite) {
 		i.mu.Unlock()
 		if muted || i.session.Now() == Idle {
 			continue
+		}
+		if leg, useTurn := i.frameDestination(); leg != nil {
+			// Anti-ambush (D-DI-3): a ringing dot transmits NOTHING. The leg
+			// can already exist while the callee is still ringing — the
+			// caller's offer legitimately races its accept — but call audio
+			// only flows once the call is actually up (Busy: in-call, muted
+			// or joined), never on the ring.
+			if !i.session.Busy() {
+				continue
+			}
+			// Direct leg owns call audio (D-P2P-4/6): 16k mono in, one Opus
+			// packet out — no resample on either end.
+			if err := leg.Send(frame); err != nil {
+				slog.Debug("intercom leg send failed", "err", err)
+			}
+			continue
+		} else if !useTurn {
+			continue // p2p transport, leg not up yet: never leak into the turn
 		}
 		buf := make([]byte, len(frame)*2)
 		for n, sample := range frame {
@@ -350,14 +431,82 @@ func (i *Intercom) pump(frames <-chan []int16, vs *esphome.VoiceSatellite) {
 	}
 }
 
+// frameDestination resolves where one captured call frame goes (D-P2P-7/8):
+// the live direct leg when one exists, otherwise the ESPHome voice turn — but
+// ONLY on the mothballed harelays transport. On p2p the fallback is nothing at
+// all: call audio must never reach HA's assist pipeline, which is exactly the
+// v1 `heard/replying` hijack that killed the relay (D-P2P-8).
+func (i *Intercom) frameDestination() (leg mediaLeg, useTurn bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.leg != nil {
+		return i.leg, false
+	}
+	return nil, i.transport == transportHARelays
+}
+
+// setLeg publishes the live direct leg (closing any previous one) so the pump
+// starts routing to it the moment it exists.
+func (i *Intercom) setLeg(l mediaLeg) {
+	i.mu.Lock()
+	old := i.leg
+	i.leg = l
+	i.mu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+}
+
+// clearLeg closes and forgets the live direct leg (session teardown).
+func (i *Intercom) clearLeg() {
+	i.mu.Lock()
+	leg := i.leg
+	i.leg = nil
+	i.mu.Unlock()
+	if leg != nil {
+		_ = leg.Close()
+	}
+}
+
+// activeLeg is the direct leg currently owning call audio, or nil.
+func (i *Intercom) activeLeg() mediaLeg {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.leg
+}
+
+// setTransport records where this session's call audio travels (D-P2P-7).
+func (i *Intercom) setTransport(t string) {
+	i.mu.Lock()
+	i.transport = t
+	i.mu.Unlock()
+}
+
+// playback resolves the inbound-audio sink: the config.StreamIntercom speaker
+// lane in production, an injected sink in tests.
+func (i *Intercom) playback() func([]int16) {
+	if i.play != nil {
+		return i.play
+	}
+	return i.playIntercom
+}
+
+// playIntercom plays decoded peer audio on the intercom mixer lane
+// (config.StreamIntercom — independent volume, D-DI-4).
+func (i *Intercom) playIntercom(samples []int16) {
+	speaker.Get().PlayStream(config.StreamIntercom, samples)
+}
+
 // PlayPeer plays relayed call audio on the intercom mixer lane. The HA-side
-// relay (card 3) calls this with the peer's VoiceAssistantAudio PCM payload.
+// relay (card 3, mothballed by D-P2P-7) calls this with the peer's
+// VoiceAssistantAudio PCM payload; the direct leg feeds the same lane through
+// playIntercom.
 func (i *Intercom) PlayPeer(pcm []byte) {
 	samples := make([]int16, len(pcm)/2)
 	for n := range samples {
 		samples[n] = int16(binary.LittleEndian.Uint16(pcm[n*2:]))
 	}
-	speaker.Get().PlayStream(config.StreamIntercom, samples)
+	i.playback()(samples)
 }
 
 // Session exposes the machine for the web/ctl surfaces and tests.

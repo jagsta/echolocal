@@ -31,25 +31,37 @@ func (i *Intercom) Actions() []*esphome.Action {
 	return []*esphome.Action{
 		{
 			Name:    "dropin_dial",
-			Args:    []esphome.Arg{{Name: "session"}, {Name: "caller"}},
+			Args:    []esphome.Arg{{Name: "session"}, {Name: "caller"}, {Name: "transport"}},
 			Answers: true,
 			Run: func(c esphome.Call) (any, error) {
 				s := i.session
 				session := c.String("session")
 				caller := c.String("caller")
+				// D-P2P-7: transport is known BEFORE the ring so the callee's
+				// mic path is right from the first accepted frame — post-P2P
+				// no call audio may enter the ESPHome voice turn (D-P2P-8),
+				// including in the accept→connect window. Missing/unrecognised
+				// values fall back to the p2p default.
+				i.setTransport(transportOf(c.String("transport")))
 				if !s.Ring() {
 					return map[string]any{"state": string(s.Now())},
 						fmt.Errorf("drop-in refused: dot is %s", s.Now())
 				}
-				slog.Info("drop-in dial", "session", session, "caller", caller)
+				slog.Info("drop-in dial", "session", session, "caller", caller, "transport", transportOf(c.String("transport")))
 				return map[string]any{"state": string(s.Now())}, nil
 			},
 		},
 		{
-			Name:    "dropin_connect",
+			Name: "dropin_connect",
+			// D-P2P-2/5/7: peer = the OTHER dot's hostname, present only on
+			// the caller (the dot that offers); transport selects the direct
+			// leg (default p2p) or the mothballed harelays send-half. Extra
+			// args are ignored by a pre-P2P binary, so a mixed-dot pair
+			// degrades to "no audio" rather than a protocol error.
+			Args:    []esphome.Arg{{Name: "session"}, {Name: "peer"}, {Name: "transport"}},
 			Answers: true,
 			Run: func(c esphome.Call) (any, error) {
-				i.CallerConnect()
+				i.CallerConnectTo(c.String("session"), c.String("peer"), c.String("transport"))
 				return map[string]any{"state": string(i.session.Now())}, nil
 			},
 		},

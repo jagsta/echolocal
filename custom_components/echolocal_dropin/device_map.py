@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 # device_id (assist-satellite HA device in the device registry) -> {
 #   node:  esphome node slug HA names the dot's entities with,
 #   area:  HA area_id the dot lives in,
+#   host:  the dot's LAN hostname (D-P2P-5: the signalling peer),
 #   satellite_entity: the dot's assist_satellite entity id,
 #   session_sensor: the dot-published intercom session text sensor
 # }
@@ -28,6 +29,7 @@ DROPIN_DEVICE_MAP: dict[str, dict[str, str]] = {
     "17b8d542d93b7f00a01a79c7e9edcf60": {
         "node": "lounge",
         "area": "little_lounge",
+        "host": "lounge-dot.jagbains.org",
         "satellite_entity": "assist_satellite.lounge_assist_satellite",
         "session_sensor": "sensor.little_lounge_lounge_microphone_intercom_session",
     },
@@ -35,15 +37,28 @@ DROPIN_DEVICE_MAP: dict[str, dict[str, str]] = {
     "acf8f22077b452856f9ef46024f95d57": {
         "node": "kitchen",
         "area": "kitchen",
+        "host": "kitchen-dot.jagbains.org",
         "satellite_entity": "assist_satellite.kitchen_kitchen_assist_satellite",
         "session_sensor": "sensor.kitchen_kitchen_microphone_intercom_session",
     },
 }
 
+# The dots' LAN DNS zone (D-P2P-5): room-dot.<domain> resolves on the LAN and
+# is what the caller dot POSTs its SDP offer to. Verified live 15 Oct 2026:
+# kitchen-dot.jagbains.org -> 192.168.10.99, lounge-dot.jagbains.org ->
+# 192.168.10.254.
+DOT_DOMAIN = "jagbains.org"
+
 # area_id -> dot device id (area_aliases.json's authoritative area_ids)
 AREA_TO_DEVICE: dict[str, str] = {
     facts["area"]: device_id
     for device_id, facts in DROPIN_DEVICE_MAP.items()
+}
+
+# area_id -> dot LAN hostname (D-P2P-5), the same single source as above.
+AREA_TO_HOST: dict[str, str] = {
+    facts["area"]: f"{facts['node']}-dot.{DOT_DOMAIN}"
+    for facts in DROPIN_DEVICE_MAP.values()
 }
 
 
@@ -55,6 +70,16 @@ def dot_for(device_id: str) -> dict[str, str] | None:
 def node_for(device_id: str) -> str | None:
     facts = dot_for(device_id)
     return facts["node"] if facts else None
+
+
+def dot_host(device_id: str) -> str | None:
+    """The dot's LAN hostname, or None when the endpoint is not a known dot
+    (a phone: peer, for instance — D-P2P-1 keeps that leg off the direct path).
+    """
+    facts = dot_for(device_id)
+    if facts is None:
+        return None
+    return facts.get("host") or f"{facts['node']}-dot.{DOT_DOMAIN}"
 
 
 def session_sensor_for(device_id: str) -> str | None:

@@ -40,12 +40,15 @@ from .const import (
     STATE_IDLE,
     STATE_IN_CALL,
     STATE_RINGING,
+    TRANSPORT_HARELAYS,
+    TRANSPORT_P2P,
 )
 from .device_map import (
     AREA_TO_DEVICE,
     DROPIN_DEVICE_MAP,
     dot_available,
     dot_for,
+    dot_host,
     session_sensor_for,
     session_state,
 )
@@ -222,7 +225,15 @@ class DropInRuntime:
             # connected to kitchen").
             self._dot_action(
                 data["callee"], "dropin_dial",
-                {"session": data["session"], "caller": data["caller"]},
+                {
+                    "session": data["session"],
+                    "caller": data["caller"],
+                    # D-P2P-7/8: the callee must know its transport before it
+                    # can accept — post-P2P no call audio may enter the dot's
+                    # ESPHome voice turn, including in the accept→connect
+                    # window, so the pump's routing is set at the ring.
+                    "transport": self._transport(data),
+                },
                 session_id=data["session"],
             )
         elif kind == "connect":
@@ -245,7 +256,7 @@ class DropInRuntime:
             # endpoints so the callee's session sensor paints in_call and
             # both dots open their turns.
             for d in data.get("endpoints", []) or []:
-                self._dot_action(d, "dropin_connect", {})
+                self._dot_action(d, "dropin_connect", self._connect_args(data, d))
         elif kind == "teardown":
             relay = self._relays.pop(data["session"], None)
             if relay is not None:
@@ -264,6 +275,51 @@ class DropInRuntime:
                 "drop-in mute: device=%s muted=%s session=%s",
                 data.get("device"), data.get("muted"), data.get("session"),
             )
+
+    # -- D-P2P transport selection (specs/dot-p2p-decisions.md) ------------
+
+    def _transport(self, data: dict[str, Any]) -> str:
+        """Which media transport this session uses (D-P2P-1/7).
+
+        p2p only for a genuine dot↔dot pair — both endpoints are known dots
+        with LAN hostnames. Anything else (a phone: peer, an unresolved slug)
+        keeps the mothballed HA relay: the v1 send half stays alive and
+        unreached at the p2p default, and the phone↔dot leg is untouched
+        (D-P2P-1). Both event shapes are read: the ring event carries
+        caller/callee, the connect event an endpoints list.
+        """
+        endpoints = [str(d) for d in (data.get("endpoints") or [])]
+        if not endpoints:
+            endpoints = [
+                str(d) for d in (data.get("caller"), data.get("callee")) if d
+            ]
+        if len(endpoints) == 2 and all(dot_host(d) for d in endpoints):
+            return TRANSPORT_P2P
+        return TRANSPORT_HARELAYS
+
+    def _other_endpoint(self, data: dict[str, Any], device_id: str) -> str | None:
+        """The peer endpoint of ``device_id`` within this session."""
+        for candidate in data.get("endpoints") or []:
+            if str(candidate) != str(device_id):
+                return str(candidate)
+        return None
+
+    def _connect_args(self, data: dict[str, Any], device_id: str) -> dict[str, str]:
+        """dropin_connect args for one endpoint (D-P2P-2/5/7).
+
+        The CALLER dot is the one that receives ``peer``: the callee's LAN
+        hostname, built from the device_map facts. It is the caller that
+        always offers (D-P2P-5); the callee gets the transport and no peer, so
+        it only ever arms its /call/dotoffer answer gate.
+        """
+        caller = str(data.get("caller") or "")
+        transport = self._transport(data)
+        args = {"session": str(data.get("session") or ""), "transport": transport}
+        if str(device_id) == caller and transport == TRANSPORT_P2P:
+            host = dot_host(self._other_endpoint(data, device_id) or "")
+            if host:
+                args["peer"] = host
+        return args
 
     # -- dot transport (Card A: the physical dial) -------------------------
 

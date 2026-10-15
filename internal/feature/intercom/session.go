@@ -86,6 +86,11 @@ type Session struct {
 	killTimer func(d time.Duration, fire func()) (stop func())
 	stopKill  func()
 
+	// authorized records that HA's connect (or the dot-native accept that
+	// precedes it) opened this call. It is what the callee's D-P2P-4/5 offer
+	// gate consults, so a stray offer can never start media on an idle dot.
+	authorized bool
+
 	pendingEnd string
 }
 
@@ -140,6 +145,36 @@ func (s *Session) CanAccept() bool {
 	return s.now == Ringing && s.clock().Sub(s.rang) >= RingFloor
 }
 
+// OfferAuthorized reports whether this dot may auto-answer an inbound
+// dot↔dot offer (D-P2P-4/5).
+//
+// It is the callee-side counterpart of the phone pairing gate (feature/call
+// phoneGate.check, D-DI-9b): fail-closed, and decided by the session machine
+// rather than by anything the network asserts. Allowed states:
+//
+//   - Ringing — HA's dropin_dial put this dot here, which IS the authorization.
+//     The caller only learns the peer host from the same connect event that
+//     fires the offer, so the offer can legitimately arrive before this dot has
+//     processed its own dropin_connect; the ring must therefore answer.
+//   - a live call opened by Accept (dot-native accept) or CallerJoin (HA's
+//     connect) — "InCall-with-connect", the state the D-P2P-5 accept path
+//     leaves behind.
+//
+// Everything else (idle, ended, and any state that never saw an authorized
+// call) refuses.
+func (s *Session) OfferAuthorized() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch s.now {
+	case Ringing:
+		return true
+	case InCall, Muted, Joined:
+		return s.authorized
+	default:
+		return false
+	}
+}
+
 // Accept connects the call. Refused unless ringing and the ring floor has
 // elapsed. Returns the state after the attempt.
 func (s *Session) Accept() (State, bool) {
@@ -152,6 +187,7 @@ func (s *Session) Accept() (State, bool) {
 	from := s.now
 	s.now = InCall
 	s.rang = time.Time{}
+	s.authorized = true // this call is authorized: the gate admits offers
 	s.endpoints = append(s.endpoints[:0],
 		"caller", "callee") // v1 shape: exactly two; see AddParticipant
 	s.mu.Unlock()
@@ -181,6 +217,7 @@ func (s *Session) CallerJoin() (State, bool) {
 	from := s.now
 	s.now = InCall
 	s.rang = time.Time{}
+	s.authorized = true // HA's connect authorized this call (D-P2P-4/5 gate)
 	s.endpoints = append(s.endpoints[:0], "caller", "callee")
 	s.mu.Unlock()
 
@@ -260,6 +297,7 @@ func (s *Session) End(reason string) bool {
 	from := s.now
 	s.now = Idle
 	s.rang = time.Time{}
+	s.authorized = false // no call: the offer gate is closed again
 	s.endpoints = s.endpoints[:0]
 	stop := s.stopKill
 	s.pendingEnd = reason

@@ -48,6 +48,13 @@ SESSION_ENDED = "ended"
 # the dot's word, never the machine's.
 DOT_SESSION_ACCEPTED = ("in-call", "muted", "joined")
 
+# Media transports carried on the dots' dropin_dial/dropin_connect args
+# (D-P2P-7). "p2p" is the default: the dots negotiate their own direct pion
+# leg (D-P2P-4). "harelays" keeps the mothballed v1 HA-relay send half alive
+# for endpoints that are not a dot pair (a phone: peer, D-P2P-1).
+TRANSPORT_P2P = "p2p"
+TRANSPORT_HARELAYS = "harelays"
+
 SERVICE_CALL = "call"
 SERVICE_ACCEPT = "accept"
 SERVICE_HANGUP = "hangup"
