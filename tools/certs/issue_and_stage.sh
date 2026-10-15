@@ -232,6 +232,21 @@ ssh -o BatchMode=yes "$HA_TARGET" "ha apps restart a0d7b954_nginxproxymanager" >
   || log "WARN: NPM addon restart via ha CLI failed"
 ssh -o BatchMode=yes "$HA_TARGET" "ha core restart" >/dev/null 2>&1 \
   || log "WARN: HA core restart failed"
+# Serving-verification (echolocal anomaly 3): exit code of restart/start alone
+# is NOT success — `ha core start` returned 0 during the HTTP wedge. Probe
+# from INSIDE the box; on timeout the helper runs one automatic full restart
+# and re-probes. WARN only if that second probe also fails.
+HA_WAIT_SERVING="$REPO_DIR/tools/ha/ha_wait_serving.sh"
+if [[ ! -x "$HA_WAIT_SERVING" ]]; then chmod +x "$HA_WAIT_SERVING" 2>/dev/null || true; fi
+if [[ -f "$HA_WAIT_SERVING" ]]; then
+  # Target may need a nonstandard ssh port inside the sandbox topology; the
+  # default LAN form is user@host (port 22).
+  if ! bash "$HA_WAIT_SERVING" "$HA_TARGET" 120; then
+    log "WARN: HA core not serving after restart + automatic full restart + re-probe"
+  fi
+else
+  log "WARN: serving probe helper missing at $HA_WAIT_SERVING — skipping serving verification"
+fi
 log "live pair deployed: HA /ssl, NPM custom_ssl (npm-1), PVE pveproxy-ssl; dots self-update via certfetch"
 
 rm -rf "$WORK_DIR"
