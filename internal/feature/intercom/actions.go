@@ -66,6 +66,25 @@ func (i *Intercom) Actions() []*esphome.Action {
 			},
 		},
 		{
+			Name: "dropin_answer",
+			// t_01e7db90: the CALLEE's HA-driven join under P2P. `peer` is a
+			// required arg on `dropin_connect` (HA makes every declared arg
+			// required), but the callee must never offer (D-P2P-5) — it only
+			// answers the caller's offer on /call/dotoffer. This peerless
+			// action joins the call dot-side (CallerJoin -> InCall) so the
+			// session sensor paints in_call and the turn opens; the media leg
+			// is created when the caller's offer arrives.
+			//
+			// On harelays (no arg, mothballed) this action is never invoked:
+			// HA's connect fans out dropin_connect to both endpoints there.
+			Args:    []esphome.Arg{{Name: "session"}, {Name: "transport"}},
+			Answers: true,
+			Run: func(c esphome.Call) (any, error) {
+				i.CalleeJoin(c.String("session"), c.String("transport"))
+				return map[string]any{"state": string(i.session.Now())}, nil
+			},
+		},
+		{
 			Name:    "dropin_end",
 			Args:    []esphome.Arg{{Name: "reason"}},
 			Answers: true,

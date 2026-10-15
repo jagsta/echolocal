@@ -145,12 +145,15 @@ def test_dot_sensor_in_call_accepts_and_emits_connect_for_both_endpoints():
     assert len(connects) == 1, "exactly one connect"
     assert set(connects[0]["endpoints"]) == {LOUNGE, KIT}, "BOTH endpoint ids"
 
-    # ... and the machine's connect event is what transports dropin_connect to
-    # both dots (no second relay-open path exists).
+    # ... and the machine's connect event is what transports the join to both
+    # dots: caller gets dropin_connect (with peer), callee dropin_answer
+    # (t_01e7db90 — HA's schema requires peer on dropin_connect and the callee
+    # must never offer).
     drain(hass)
     services = [service for _, service, _, _ in hass.service_calls]
     assert "lounge_dropin_connect" in services
-    assert "kitchen_dropin_connect" in services
+    assert "kitchen_dropin_answer" in services
+    assert "kitchen_dropin_connect" not in services
 
 
 def test_ringing_sensor_transition_is_the_dial_echo_not_an_accept():

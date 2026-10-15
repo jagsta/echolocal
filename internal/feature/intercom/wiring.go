@@ -337,6 +337,25 @@ func (i *Intercom) CallerConnect() {
 	i.mu.Unlock()
 }
 
+// CalleeJoin is the CALLEE-side HA-driven join under P2P (t_01e7db90): HA
+// invokes dropin_answer on the callee dot once the callee accepted. HA's
+// esphome service schema marks every declared arg REQUIRED, so the callee's
+// old dropin_connect call (no peer arg, per D-P2P-5) was rejected at schema
+// validation and this dot never left Ringing — half-call, one-way audio.
+// Same join as the caller but no peer is ever offered; setTransport is
+// already correct (it arrived on the ring).
+func (i *Intercom) CalleeJoin(session, transport string) {
+	i.setTransport(transportOf(transport))
+	if i.session.Now() == Idle {
+		// Fail-closed before any satellite touch: a peerless join for a dot
+		// that was never rung must not dereference the satellite (t_01e7db90,
+		// TestDropinAnswerRefusedWhenIdle).
+		slog.Debug("intercom callee join refused", "state", string(Idle))
+		return
+	}
+	i.CallerConnect()
+}
+
 // CallerConnectTo is the D-P2P entry point for the connect event: CallerConnect
 // plus the transport/peer facts HA now sends on dropin_connect (D-P2P-2/5/7).
 //

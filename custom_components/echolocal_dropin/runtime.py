@@ -257,7 +257,14 @@ class DropInRuntime:
             # endpoints so the callee's session sensor paints in_call and
             # both dots open their turns.
             for d in data.get("endpoints", []) or []:
-                self._dot_action(d, "dropin_connect", self._connect_args(data, d))
+                if d == data.get("caller"):
+                    # CALLER: peer=<other dot host>, it offers (D-P2P-5).
+                    self._dot_action(d, "dropin_connect", self._connect_args(data, d))
+                else:
+                    # CALLEE (t_01e7db90): `dropin_connect` requires `peer` in
+                    # HA's action schema, but the callee must never offer — it
+                    # gets the peerless `dropin_answer` join instead.
+                    self._dot_action(d, "dropin_answer", self._accept_args(data, d))
         elif kind == "teardown":
             relay = self._relays.pop(data["session"], None)
             if relay is not None:
@@ -323,6 +330,22 @@ class DropInRuntime:
         return args
 
     # -- dot transport (Card A: the physical dial) -------------------------
+
+    def _accept_args(self, data: dict[str, Any], device_id: str) -> dict[str, str]:
+        """dropin_answer args for the CALLEE endpoint (D-P2P-5, t_01e7db90).
+
+        HA's esphome integration marks every declared action arg REQUIRED
+        (vol.Required per arg in its service schema), so the callee cannot be
+        sent `dropin_connect` without `peer` — and per D-P2P-5 the callee must
+        NOT get a peer (it only ever answers; a peer would make it offer). The
+        callee therefore gets the dedicated peerless `dropin_answer` action
+        (session + transport only), which joins the call dot-side (CallerJoin)
+        and paints its session sensor in_call.
+        """
+        return {
+            "session": str(data.get("session") or ""),
+            "transport": self._transport(data),
+        }
 
     def _dot_action(self, device_id: str, action: str, args: dict[str, str],
                     session_id: str | None = None) -> None:

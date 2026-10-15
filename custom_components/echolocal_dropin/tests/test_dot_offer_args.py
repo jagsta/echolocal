@@ -169,9 +169,12 @@ def test_caller_gets_peer_host_and_p2p_transport():
     assert caller_args[0]["session"] == "di-p2p"
 
 
-def test_callee_gets_transport_but_no_peer():
-    """D-P2P-5: the caller always offers. The callee must not start an offer
-    of its own — it only answers."""
+def test_callee_gets_peerless_answer_join():
+    """t_01e7db90: HA's esphome service schema makes every declared action
+    arg REQUIRED, so `dropin_connect` (which declares peer) cannot be sent to
+    the callee without a peer — and D-P2P-5 says the callee must never offer.
+    The callee therefore receives `dropin_answer` (session+transport, no peer),
+    which joins dot-side without offering."""
     rt, hass, _events = make_runtime()
     clock = ringing_pair(rt)
     rt.handle_session_sensor_change(
@@ -179,10 +182,13 @@ def test_callee_gets_transport_but_no_peer():
     )
     drain(hass)
 
-    callee_args = calls_for(hass, "kitchen_dropin_connect")
-    assert len(callee_args) == 1
-    assert "peer" not in callee_args[0]
-    assert callee_args[0]["transport"] == TRANSPORT_P2P
+    answer_args = calls_for(hass, "kitchen_dropin_answer")
+    assert len(answer_args) == 1
+    assert "peer" not in answer_args[0]
+    assert answer_args[0]["transport"] == TRANSPORT_P2P
+    assert answer_args[0]["session"] == "di-p2p"
+    # and the callee is never sent dropin_connect (its peer arg is required)
+    assert calls_for(hass, "kitchen_dropin_connect") == []
 
 
 def test_ring_carries_transport_so_the_turn_is_never_used_for_call_audio():
@@ -211,8 +217,9 @@ def test_reverse_direction_swaps_the_peer_host():
 
     caller_args = calls_for(hass, "kitchen_dropin_connect")
     assert caller_args and caller_args[0]["peer"] == LOUNGE_HOST
-    callee_args = calls_for(hass, "lounge_dropin_connect")
+    callee_args = calls_for(hass, "lounge_dropin_answer")
     assert callee_args and "peer" not in callee_args[0]
+    assert callee_args[0]["transport"] == TRANSPORT_P2P
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +233,7 @@ def test_phone_caller_keeps_harelays_and_no_peer():
     rt.machine.accept("di-phone", KIT, at=clock[0])
     drain(hass)
 
-    callee_args = calls_for(hass, "kitchen_dropin_connect")
+    callee_args = calls_for(hass, "kitchen_dropin_answer")
     assert len(callee_args) == 1
     assert callee_args[0]["transport"] == TRANSPORT_HARELAYS
     assert "peer" not in callee_args[0]
