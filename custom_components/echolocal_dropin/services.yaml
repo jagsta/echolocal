@@ -20,6 +20,32 @@ call:
       required: false
       selector:
         text:
+dial:
+  # t_3c196f3e / D-DI-6 offline-at-dial: resolves the callee up front
+  # (area_aliases.json -> dot) and refuses an unknown or dotless room with a
+  # clean service error; an OFFLINE dot reports TTS "… isn't available" at
+  # the caller with no session started. Never registers a phantom endpoint.
+  fields:
+    caller_device:
+      required: true
+      selector:
+        text:
+    caller_room:
+      required: false
+      selector:
+        text:
+    callee_device:
+      required: false
+      selector:
+        text:
+    callee_room:
+      required: true
+      selector:
+        text:
+    session_id:
+      required: false
+      selector:
+        text:
 accept:
   fields:
     session_id:

@@ -36,6 +36,11 @@ CARDS (explicit work):
 - 3-second ring floor (spec decision, enforced in session state machine).
 ACCEPTED RISKS / trivial paths (no card): offline-at-dial → immediate TTS "kitchen isn't available" on caller, no retry; accidental activation → bounded by one-breath invocation + kill-switch; no PIN gate in v1.
 
+### D-DI-6a — offline-at-dial contract (t_3c196f3e, settled 15 Oct 2026)
+Live defect: the dial automation fed the aspirational slug `echod-<room>` into `echolocal_dropin.call`, so a room with no dot (spoken "lounge" → area `big_lounge`) registered a RINGING session against a PHANTOM callee; the caller sat DIALING until the 30s ring timeout and every retry was busy-rejected.
+**Contract (of the three candidate fixes, option 1 is THE contract):** the offline-at-dial path is the dial contract — registered as service `echolocal_dropin.dial` (→ `runtime.call_or_report_offline`), with the callee resolved UP FRONT via `area_aliases.json` (option 2's alias resolution folded in): explicit dot device → alias/area id → `AREA_TO_DEVICE`; refusal (`CallError` "no drop-in dot in …") BEFORE any session exists for a dotless/unknown room; an OFFLINE known dot gets TTS "The <room> isn't available" at the caller with no session. `echolocal_dropin.call` stays for explicit device-to-device calls; option 3 (gc_tick reaping phantom callees) is superseded — the phantom endpoint can no longer exist.
+Verification: unit tests pin it (`tests/test_offline_dial.py`); the deployed automation `echolocal_dropin_dial` calls `echolocal_dropin.dial` with `callee_room` only (no `callee_device` slug).
+
 ## D-DI-7 — Verification posture
 Every card carries a criteria block (grep-able CHECK or pytest on the Hermes venv python absolute path per hil-framework convention); protocol-level cards (does go-esphome-device support continuous sideband audio?) must be resolved by READING the pilot device's echod/go-esphome-device before session-layer cards are authored — D-DI-4's relay shape depends on the answer.
 

@@ -62,7 +62,7 @@ def test_one_automation_per_sentence_set() -> None:
 def test_verbs_map_to_the_voice_services() -> None:
     autos = by_id()
     expected = {
-        "echolocal_dropin_dial": "echolocal_dropin.call",
+        "echolocal_dropin_dial": "echolocal_dropin.dial",
         "echolocal_dropin_answer": "echolocal_dropin.voice_answer",
         "echolocal_dropin_hangup": "echolocal_dropin.voice_hangup",
     }

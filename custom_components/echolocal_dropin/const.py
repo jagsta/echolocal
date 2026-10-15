@@ -56,6 +56,7 @@ TRANSPORT_P2P = "p2p"
 TRANSPORT_HARELAYS = "harelays"
 
 SERVICE_CALL = "call"
+SERVICE_DIAL = "dial"  # offline-at-dial aware dial (call_or_report_offline)
 SERVICE_ACCEPT = "accept"
 SERVICE_HANGUP = "hangup"
 SERVICE_SET_PERMISSION = "set_permission"

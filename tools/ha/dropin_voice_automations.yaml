@@ -60,13 +60,15 @@
       # resolves to no dot and wedges the caller in dialing until the ring
       # timeout (live 15 Oct 16:26).
       callee_area: '{{ trigger.slots.room | replace(" ", "_") | lower }}'
-  - action: echolocal_dropin.call
+  - action: echolocal_dropin.dial
     data:
       caller_device: '{{ caller_device }}'
       caller_room: '{{ area_id(caller_device) if caller_device else "" }}'
-      callee_device: echod-{{ callee_area }}
+      # callee resolved by the runtime (aliases -> area -> dot); a dotless
+      # room (e.g. "lounge" -> big_lounge) is refused BEFORE any session
+      # exists, with TTS "<room> isn't available" at the caller (D-DI-6,
+      # t_3c196f3e) instead of the 30s dialing wedge.
       callee_room: '{{ callee_area }}'
-      session_id: di-{{ caller_device }}-{{ callee_area }}
   - set_conversation_response: Dropping in on {{ callee_area | replace('_',' ') }}.
 
 - id: echolocal_dropin_answer

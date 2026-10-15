@@ -32,6 +32,7 @@ from .const import (
     PERMISSION_DENY,
     SERVICE_ACCEPT,
     SERVICE_CALL,
+    SERVICE_DIAL,
     SERVICE_HANGUP,
     SERVICE_SET_PERMISSION,
     SERVICE_VOICE_ANSWER,
@@ -53,6 +54,7 @@ from .device_map import (
     session_sensor_for,
     session_state,
 )
+from .intent_router import IntentError, load_area_aliases, resolve_room
 from .relay import StarRelay
 from .state_machine import (
     Endpoint,
@@ -125,6 +127,13 @@ class DropInRuntime:
         self.hass.services.async_register(DOMAIN, SERVICE_HANGUP, handle_hangup)
         self.hass.services.async_register(DOMAIN, SERVICE_SET_PERMISSION, handle_set_permission)
 
+        # t_3c196f3e / D-DI-6 offline-at-dial: the dial service resolves the
+        # callee up front (aliases -> area -> dot) and reports an unavailable
+        # or dotless callee as TTS at the caller WITHOUT starting a session,
+        # so a phantom callee can never wedge the caller in DIALING.
+        handle_dial = wrapped(self._dial_service)
+        self.hass.services.async_register(DOMAIN, SERVICE_DIAL, handle_dial)
+
         handle_voice_answer = wrapped(self.voice_answer)
         handle_voice_hangup = wrapped(self.voice_hangup)
 
@@ -171,6 +180,70 @@ class DropInRuntime:
             self.machine.hangup(session_id)
 
     # -- service impls (run in executor; state machine is sync) -----------
+
+    def _resolve_callee(self, data: dict[str, Any]) -> tuple[str, str]:
+        """(callee_device, callee_room) for a dial request, or raise CallError.
+
+        t_3c196f3e: the raw automation used to pass the aspirational slug
+        `echod-<room>` straight into machine.call, so a room with NO dot
+        (spoken "lounge" -> area big_lounge; older "little lounge" before the
+        automation normalised spaces) registered a RINGING session against a
+        phantom endpoint and wedged the caller in DIALING until the 30s ring
+        timeout, busy-rejecting every retry in the window. Resolution order:
+
+        1. an explicit callee_device that IS a known dot → use it;
+        2. area_aliases.json (spoken alias OR area id, e.g. "lounge" ->
+           big_lounge, "little lounge" -> little_lounge) -> AREA_TO_DEVICE;
+        3. the plain AREA_TO_DEVICE area-id lookup;
+        4. otherwise REFUSE (CallError) — never dial a phantom endpoint.
+        """
+        callee_device = str(data.get("callee_device") or "")
+        callee_room = str(data.get("callee_room") or "")
+        if dot_for(callee_device) is not None:
+            return callee_device, callee_room
+        try:
+            area = resolve_room(callee_room, self._aliases())
+        except IntentError:
+            area = None
+        if area is None and AREA_TO_DEVICE.get(callee_room):
+            area = callee_room  # an exact area id, even without an alias entry
+        resolved = AREA_TO_DEVICE.get(area or "")
+        if area is None or resolved is None:
+            raise CallError(
+                f"no drop-in dot in {callee_room!r} — cannot dial (D-DI-6)"
+            )
+        return resolved, area
+
+    def _aliases(self) -> dict[str, str]:
+        if getattr(self, "_alias_table", None) is None:
+            self._alias_table = load_area_aliases()
+        return self._alias_table
+
+    def _dial_service(self, data: dict[str, Any]) -> None:
+        """echolocal_dropin.dial: offline-at-dial aware dial (D-DI-6).
+
+        Resolves the callee via _resolve_callee (unknown/dotless room ->
+        CallError), then reports an OFFLINE dot as a TTS notice at the caller
+        with no session started (call_or_report_offline). The wrapped()
+        boundary translates CallError into a clean HomeAssistantError.
+        """
+        callee_device, callee_room = self._resolve_callee(data)
+        caller_device = str(data["caller_device"])
+        if dot_for(caller_device) is None:
+            resolved = AREA_TO_DEVICE.get(str(data.get("caller_room") or ""))
+            if resolved is not None:
+                caller_device = resolved
+        room_label = callee_room.replace("_", " ")
+        self.call_or_report_offline({
+            "caller_device": caller_device,
+            "caller_room": str(data.get("caller_room") or ""),
+            "callee_device": callee_device,
+            "callee_room": callee_room,
+            "session_id": str(data.get("session_id")
+                              or f"di-{caller_device}-{callee_device}"),
+            # the TTS notice speaks a friendly label, not the area id
+            "_callee_label": room_label,
+        })
 
     def _call_service(self, data: dict[str, Any]) -> None:
         caller_device = str(data["caller_device"])
@@ -654,21 +727,22 @@ class DropInRuntime:
         is started. Without a registered media target, the notice degrades
         to a log line (device-side busy chime remains card 2's wiring path).
 
-        TODO(accepted-risk D-DI-6): pass device_available=is_available from
-        async_setup once the entity-id mapping (card 3 relay registration)
-        exposes echod connection state; accidental-activation is bounded by
-        the one-breath invocation (D-DI-5) — no additional code here.
+        Registered as ``echolocal_dropin.dial`` (t_3c196f3e); the dial
+        service resolves the callee up front so a dotless/unknown room is a
+        CallError before any session exists.
         """
+        data = {k: v for k, v in data.items() if not k.startswith("_")}
         callee = str(data["callee_device"])
+        label = str(data.get("_callee_label") or data["callee_room"]).replace("_", " ")
         if self.device_available is not None and not self.device_available(callee):
-            self._tts_on_caller(str(data["caller_device"]), f"{data['callee_room']} isn't available")
+            self._tts_on_caller(str(data["caller_device"]), f"The {label} isn't available")
             self.emit("offline_at_dial", {"caller": data["caller_device"], "callee": callee})
             return
         try:
             self._call_service(data)
         except CallError as err:
             if "offline" in str(err):
-                self._tts_on_caller(str(data["caller_device"]), f"{data['callee_room']} isn't available")
+                self._tts_on_caller(str(data["caller_device"]), f"The {label} isn't available")
             else:
                 raise
 
