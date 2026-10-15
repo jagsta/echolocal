@@ -102,7 +102,11 @@ func Get() *Diag {
 		shared.playback()
 		shared.identity()
 		shared.collector()
-		settingsOnce.Do(func() { SettingsShared() })
+		// SettingsShared owns its own settingsOnce — call it directly. Wrapping
+		// it in settingsOnce.Do (the pre-fix form) re-entered the same Once and
+		// self-deadlocked the main goroutine at every start (kitchen wedge,
+		// 15 Oct).
+		SettingsShared()
 
 		component.Subscribed.Listen(func(struct{}) { shared.soon() })
 	})
