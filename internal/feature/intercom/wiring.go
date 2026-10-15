@@ -36,6 +36,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/feature/detect"
+	"github.com/ygelfand/echolocal/internal/feature/light"
 	"github.com/ygelfand/echolocal/internal/feature/voice"
 	"github.com/ygelfand/echolocal/internal/hardware/buttons"
 	"github.com/ygelfand/echolocal/internal/hardware/led"
@@ -378,16 +379,22 @@ func (i *Intercom) ToggleMute() {
 
 // show maps state onto the existing LED conventions (D-DI-5): ring pulse →
 // Beacon, in-call solid → Pulse, muted → static amber paint, end → clear.
+//
+// The base colour passed to Play matters: Pulse has no palette of its own and
+// builds Palette{base}, so a zero Color renders a breathing BLACK frame —
+// invisible (the 15 Oct live defect: no LED pulse on either dot during a
+// call). Every other Pulse caller passes light.Get().Base(); do the same.
 func (i *Intercom) show(to State) {
 	if i.led == nil {
 		return
 	}
 	c := config.Get().Intercom
+	base := light.Get().Base()
 	switch to {
 	case Ringing:
-		i.led.Play(effectOr(c.Ring, "Beacon"), led.Color{})
+		i.led.Play(effectOr(c.Ring, "Beacon"), base)
 	case InCall, Joined:
-		i.led.Play(effectOr(c.Call, "Pulse"), led.Color{})
+		i.led.Play(effectOr(c.Call, "Pulse"), base)
 	case Muted:
 		i.led.Paint([]led.Color{amber})
 	default:
