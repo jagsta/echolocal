@@ -32,7 +32,7 @@ v1: both Dots use their existing ESPHome native API connections; a HA-side compo
 CARDS (explicit work):
 - Call-drop handling on HA disconnect: single reconnect attempt, callee end-chime (never silence).
 - Busy-reject: a device mid-call rejects new incoming calls with a busy chime — no queueing, no call-waiting. Simultaneous mutual dial resolved deterministically (caller with lower device-id wins; loser told "busy").
-- Mic mute via physical button during calls (amber LED), unmute = button again.
+- Mic mute via physical button during calls (amber LED), unmute = button again. **Amended (Jag, 15 Oct, t_4790db90): mute lives on the dot's DEDICATED mute button; the Action button ends the call ("tap to end") for both roles; volume buttons adjust volume (pass through to the media player, never consumed in-call).** Implemented in `internal/feature/intercom/wiring.go` `take()`; pinned by `TestTakeButtonContract`.
 - 3-second ring floor (spec decision, enforced in session state machine).
 ACCEPTED RISKS / trivial paths (no card): offline-at-dial → immediate TTS "kitchen isn't available" on caller, no retry; accidental activation → bounded by one-breath invocation + kill-switch; no PIN gate in v1.
 

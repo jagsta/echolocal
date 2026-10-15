@@ -226,8 +226,9 @@ func (i *Intercom) wire() {
 	i.status.Set(string(Idle))
 }
 
-// take implements the in-call button contract (D-DI-3 accept, D-DI-6 mute,
-// hang up). Returns true when the event was consumed.
+// take implements the in-call button contract (D-DI-3 accept; 15 Oct ruling:
+// Action ends the call, the dedicated Mute button toggles mic mute, volume
+// buttons pass through to the media player). Returns true when consumed.
 func (i *Intercom) take(e buttons.Event) bool {
 	if e.Kind != buttons.Tap {
 		return false
@@ -241,18 +242,25 @@ func (i *Intercom) take(e buttons.Event) bool {
 		case buttons.Action:
 			i.Accept()
 			return true
+		case buttons.Mute:
+			i.ToggleMute()
+			return true
 		case buttons.VolumeDown:
 			s.End("hangup")
 			return true
 		}
 		return false
 	default: // in-call (incl. muted/joined)
+		// Button contract (Jag, 15 Oct — amends D-DI-6): Action ends the
+		// call for BOTH roles; the dedicated Mute button owns mute/unmute;
+		// volume buttons are NOT consumed — they fall through to the media
+		// player's volume handler.
 		switch e.Name {
 		case buttons.Action:
-			i.ToggleMute()
-			return true
-		case buttons.VolumeDown:
 			s.End("hangup")
+			return true
+		case buttons.Mute:
+			i.ToggleMute()
 			return true
 		}
 		return false

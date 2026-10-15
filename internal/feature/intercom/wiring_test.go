@@ -9,6 +9,7 @@ import (
 	esphome "github.com/ygelfand/go-esphome-device"
 
 	"github.com/ygelfand/echolocal/internal/feature/voice"
+	"github.com/ygelfand/echolocal/internal/hardware/buttons"
 )
 
 // TestTurnTeardownOnEveryEndPath asserts the round-1 review fix: the shared
@@ -451,4 +452,103 @@ func TestRingChimeRepeatsUntilLeaveRinging(t *testing.T) {
 		}
 		_ = chimed
 	})
+}
+
+// TestTakeButtonContract pins the 15 Oct ruling (t_4790db90, amends D-DI-6):
+// in-call the Action button ENDS the call for both roles (it was mute before),
+// the dedicated Mute button toggles mic mute, and the volume buttons are NOT
+// consumed — they fall through to the media player's volume handler. While
+// ringing, Action still accepts, Mute toggles, and volume-down declines.
+func TestTakeButtonContract(t *testing.T) {
+	newI := func() *Intercom {
+		return &Intercom{session: New(30 * time.Minute), status: &esphome.TextSensor{}}
+	}
+	accepted := func(i *Intercom) {
+		s := i.session
+		start := time.Now()
+		s.clock = func() time.Time { return start }
+		if !s.Ring() {
+			t.Fatal("ring refused")
+		}
+		s.clock = func() time.Time { return start.Add(RingFloor + time.Second) }
+		if _, ok := s.Accept(); !ok {
+			t.Fatal("accept refused")
+		}
+	}
+
+	// In-call: Action ends.
+	i := newI()
+	accepted(i)
+	if !i.take(buttons.Event{Name: buttons.Action, Kind: buttons.Tap}) {
+		t.Fatal("in-call Action not consumed")
+	}
+	if i.session.Now() != Idle {
+		t.Fatal("in-call Action did not end the call")
+	}
+
+	// In-call: Mute toggles the flag (consumes the event; mute stays a
+	// Mute-button concern, not Action).
+	i = newI()
+	accepted(i)
+	if !i.take(buttons.Event{Name: buttons.Mute, Kind: buttons.Tap}) {
+		t.Fatal("in-call Mute not consumed")
+	}
+	if !i.muted {
+		t.Fatal("in-call Mute tap did not mute")
+	}
+	if i.session.Now() == Idle {
+		t.Fatal("Mute tap must not end the call")
+	}
+
+	// In-call: volume buttons fall through (not consumed → media volume).
+	i = newI()
+	accepted(i)
+	for _, name := range []buttons.Name{buttons.VolumeUp, buttons.VolumeDown} {
+		if i.take(buttons.Event{Name: name, Kind: buttons.Tap}) {
+			t.Fatalf("in-call %s was consumed — it must pass through to volume", name)
+		}
+	}
+	if i.session.Now() == Idle {
+		t.Fatal("volume tap must not end the call")
+	}
+
+	// Ringing: Action accepts; VolumeDown still hangs up; Mute toggles.
+	i = newI()
+	s := i.session
+	start := time.Now()
+	s.clock = func() time.Time { return start }
+	if !s.Ring() {
+		t.Fatal("ring refused")
+	}
+	s.clock = func() time.Time { return start.Add(RingFloor + time.Second) }
+	if !i.take(buttons.Event{Name: buttons.Action, Kind: buttons.Tap}) {
+		t.Fatal("ringing Action not consumed")
+	}
+	if s.Now() != InCall {
+		t.Fatal("ringing Action did not accept")
+	}
+
+	i = newI()
+	s = i.session
+	start = time.Now()
+	s.clock = func() time.Time { return start }
+	s.Ring()
+	if !i.take(buttons.Event{Name: buttons.Mute, Kind: buttons.Tap}) {
+		t.Fatal("ringing Mute not consumed")
+	}
+	if !i.muted {
+		t.Fatal("ringing Mute tap did not mute")
+	}
+
+	i = newI()
+	s = i.session
+	start = time.Now()
+	s.clock = func() time.Time { return start }
+	s.Ring()
+	if !i.take(buttons.Event{Name: buttons.VolumeDown, Kind: buttons.Tap}) {
+		t.Fatal("ringing VolumeDown not consumed")
+	}
+	if s.Now() != Idle {
+		t.Fatal("ringing VolumeDown did not hang up")
+	}
 }
