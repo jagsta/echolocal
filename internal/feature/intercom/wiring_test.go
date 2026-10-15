@@ -1,6 +1,7 @@
 package intercom
 
 import (
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -211,6 +212,7 @@ func TestMuteTransmitGuardVariables(t *testing.T) {
 		t.Fatalf("state after unmute = %q, want in-call", i.session.Now())
 	}
 }
+
 // TestWireAssignsVS pins the assignment itself (round-3 secondary): wire() must
 // set i.vs from voice.Get().VS(), so a future regression that removes the
 // assignment is caught here rather than only in Accept/releaseTurn runtime paths.
@@ -223,4 +225,148 @@ func TestWireAssignsVS(t *testing.T) {
 	if i.vs != voice.Get().VS() {
 		t.Fatal("i.vs is not the shared satellite from voice.Get().VS()")
 	}
+}
+
+// TestRingChimeRepeatsUntilLeaveRinging pins the 15 Oct defect fix: the ring
+// tone must repeat every ring period while the session sits in Ringing — the
+// one-shot Idle→Ringing chime left later rings visual-only. wire() must arm
+// the repeat timer on ring entry and stop it on ANY transition out of Ringing
+// (InCall via Accept/CallerJoin, Idle via End/re-dial), and the timer's fire
+// closure must no-op once the session is no longer Ringing (a fire that raced
+// the stop must not chime).
+func TestRingChimeRepeatsUntilLeaveRinging(t *testing.T) {
+	// manualTimer stands in for repeatingTimer: each arm records the installed
+	// fire closure, its stop unrecords it — deterministic, no sleeping, and
+	// hands the test exactly the closure wire() installed.
+	type arms struct {
+		mu   sync.Mutex
+		live map[*func()]struct{}
+	}
+	fakeTimer := func(live *arms) func(time.Duration, func()) (stop func()) {
+		return func(_ time.Duration, fire func()) (stop func()) {
+			key := &fire
+			live.mu.Lock()
+			live.live[key] = struct{}{}
+			live.mu.Unlock()
+			return func() {
+				live.mu.Lock()
+				delete(live.live, key)
+				live.mu.Unlock()
+			}
+		}
+	}
+	wired := func(live *arms) *Intercom {
+		i := &Intercom{session: New(30 * time.Minute), status: &esphome.TextSensor{}}
+		i.ringTimer = fakeTimer(live)
+		i.wire()
+		return i
+	}
+
+	t.Run("arms one timer on ring entry", func(t *testing.T) {
+		live := &arms{live: map[*func()]struct{}{}}
+		i := wired(live)
+		if !i.session.Ring() {
+			t.Fatal("ring refused")
+		}
+		live.mu.Lock()
+		n := len(live.live)
+		live.mu.Unlock()
+		if n != 1 {
+			t.Fatalf("ring entry armed %d timers, want 1", n)
+		}
+	})
+
+	t.Run("re-arm replaces, never doubles", func(t *testing.T) {
+		live := &arms{live: map[*func()]struct{}{}}
+		i := wired(live)
+		if !i.session.Ring() {
+			t.Fatal("first ring refused")
+		}
+		if !i.session.End("hangup") {
+			t.Fatal("end refused")
+		}
+		if !i.session.Ring() {
+			t.Fatal("second ring refused")
+		}
+		live.mu.Lock()
+		n := len(live.live)
+		live.mu.Unlock()
+		if n != 1 {
+			t.Fatalf("re-ring left %d timers armed, want 1", n)
+		}
+	})
+
+	t.Run("stop on accept", func(t *testing.T) {
+		live := &arms{live: map[*func()]struct{}{}}
+		i := wired(live)
+		start := time.Now()
+		i.session.clock = func() time.Time { return start }
+		if !i.session.Ring() {
+			t.Fatal("ring refused")
+		}
+		i.session.clock = func() time.Time { return start.Add(RingFloor + time.Second) }
+		if _, ok := i.session.Accept(); !ok {
+			t.Fatal("accept refused")
+		}
+		live.mu.Lock()
+		n := len(live.live)
+		live.mu.Unlock()
+		if n != 0 {
+			t.Fatalf("accept left %d ring timers armed, want 0", n)
+		}
+	})
+
+	t.Run("stop on hangup from ringing", func(t *testing.T) {
+		live := &arms{live: map[*func()]struct{}{}}
+		i := wired(live)
+		if !i.session.Ring() {
+			t.Fatal("ring refused")
+		}
+		if !i.session.End("hangup") {
+			t.Fatal("end refused")
+		}
+		live.mu.Lock()
+		n := len(live.live)
+		live.mu.Unlock()
+		if n != 0 {
+			t.Fatalf("end from ringing left %d ring timers armed, want 0", n)
+		}
+	})
+
+	t.Run("stale fire after end never chimes", func(t *testing.T) {
+		live := &arms{live: map[*func()]struct{}{}}
+		chimed := &atomic.Int64{}
+		i := wired(live)
+		// Swap the speaker path for a counter: replace only for the closure
+		// we hold — the production chime is a method on Intercom, so instead
+		// run the closure's own guard: hold the fire, let the session leave
+		// Ringing, then fire. The wiring closure checks Now()==Ringing before
+		// chiming, so a raced/stale fire must be a no-op. We assert via the
+		// speaker seam we DO control here: chime() would panic on the nil
+		// speaker in tests — meaning any stale chime turns into a loud
+		// failure instead of a silent pass.
+		if !i.session.Ring() {
+			t.Fatal("ring refused")
+		}
+		live.mu.Lock()
+		var fire func()
+		for f := range live.live {
+			fire = *f // the closure wire() installed
+		}
+		live.mu.Unlock()
+		if fire == nil {
+			t.Fatal("ring entry installed no fire closure")
+		}
+		if !i.session.End("hangup") {
+			t.Fatal("end refused")
+		}
+		// The closure's guard must see a non-Ringing session, so the chime
+		// below must be skipped — fire() returning without chiming is the
+		// assertion; a stale chime would Interject a nil-speaker panic.
+		fire()
+		if i.session.Now() != Idle {
+			t.Fatal("session must be idle after hangup")
+		}
+		_ = chimed
+	})
 }

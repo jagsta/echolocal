@@ -64,6 +64,13 @@ type Intercom struct {
 	muted    bool // physical mic transmit off in-call (D-DI-6)
 	turnOpen bool
 
+	// ringChime repeats the ring chime every ring period while the session
+	// sits in Ringing (15 Oct defect: the tone sounded only ONCE on the
+	// Idle→Ringing transition, later rings were visual-only). ringTimer is
+	// swappable for tests; nil means use a real time.Ticker.
+	ringTimer func(d time.Duration, fire func()) (stop func())
+	ringStop  func()
+
 	// transport selects where call audio travels (D-P2P-7): "p2p" (default,
 	// the direct leg) or "harelays" (the mothballed HA relay). It gates the
 	// mic pump's fallback to the ESPHome voice turn — post-P2P no call audio
@@ -139,14 +146,32 @@ func (i *Intercom) wire() {
 		i.show(to)
 	})
 
-	// Ring: chime now (ring floor is enforced by the machine, D-DI-3).
+	// Ring: chime now (ring floor is enforced by the machine, D-DI-3) and
+	// REPEAT it every ring period until the session leaves Ringing — answer,
+	// hangup, or ring timeout. The 15 Oct live defect was the tone sounding
+	// only on the first ring; the Idle→Ringing chime is one-shot, so a
+	// repeating timer owns the audible ring and any transition out of
+	// Ringing stops it.
 	s.Changed = append(s.Changed, func(from, to State) {
 		switch to {
 		case Ringing:
+			i.stopRing() // a re-ring while ringing restarts the pattern
+			if i.ringTimer == nil {
+				i.ringTimer = repeatingTimer
+			}
+			i.ringStop = i.ringTimer(ringChimePeriod, func() {
+				if i.session.Now() == Ringing {
+					i.chime("intercom_ring", sharedtone.ToneTimer)
+				}
+			})
+		default:
+			i.stopRing()
+		}
+		if to == Ringing {
 			i.chime("intercom_ring", sharedtone.ToneTimer)
-		case InCall:
+		} else if to == InCall {
 			i.chime("intercom_connect", sharedtone.ToneUnmute)
-		case Idle:
+		} else if to == Idle {
 			if from != Idle {
 				i.chime("intercom_end", sharedtone.ToneMute)
 			}
@@ -384,6 +409,59 @@ func (i *Intercom) chime(name string, notes []sharedtone.Note) {
 		p.Chime(config.StreamFeedback, sharedtone.Level, notes...)
 	})
 	slog.Info("intercom chime", "name", name)
+}
+
+// ringChimePeriod is the interval between repeated ring chimes while the
+// callee sits in Ringing — long enough for the three-note ToneTimer burst to
+// finish with a clear gap before the next.
+const ringChimePeriod = 4 * time.Second
+
+// repeatingTimer is the production ring timer: fire once after d, then every
+// d thereafter (a Ticker armed on the ring, stopped unconditionally when the
+// session leaves Ringing).
+func repeatingTimer(d time.Duration, fire func()) (stop func()) {
+	var (
+		mu    sync.Mutex
+		fired bool // stop seen; goroutine drains
+		done  = make(chan struct{})
+	)
+	go func() {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				mu.Lock()
+				if fired {
+					mu.Unlock()
+					return
+				}
+				mu.Unlock()
+				fire()
+				t.Reset(d)
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		mu.Lock()
+		fired = true
+		mu.Unlock()
+		close(done)
+	}
+}
+
+// stopRing kills a live repeat pattern; safe to call from any state, any
+// number of times (nil and double-stop are no-ops).
+func (i *Intercom) stopRing() {
+	i.mu.Lock()
+	stop := i.ringStop
+	i.ringStop = nil
+	i.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
 }
 
 // pump streams captured mic frames into the call's audio path. Muted or idle,
