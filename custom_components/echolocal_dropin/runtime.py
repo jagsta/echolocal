@@ -31,6 +31,7 @@ from .const import (
     SERVICE_SET_PERMISSION,
     SERVICE_VOICE_ANSWER,
     SERVICE_VOICE_HANGUP,
+    SESSION_RINGING,
     STATE_IDLE,
     STATE_IN_CALL,
     STATE_RINGING,
@@ -169,10 +170,18 @@ class DropInRuntime:
             self._media_pause(data["callee"])
             # Card A: transport the ring to the dot — invoke the callee's
             # ESPHome dropin_dial action (chime/LED/session sensor paint
-            # happens dot-side the moment Session.Ring() fires).
-            self._dot_action(data["callee"], "dropin_dial", {
-                "session": data["session"], "caller": data["caller"],
-            })
+            # happens dot-side the moment Session.Ring() fires). Failure
+            # propagation: if the native-API transport is dead the dot will
+            # NEVER hear this ring — tear the session down immediately
+            # instead of leaving CALLEE=ringing / CALLER=dialing wedged
+            # until the 30s gc ring timeout (live 15 Oct break point,
+            # child-1 diagnosis: aioesphomeapi APIConnectionError "Not
+            # connected to kitchen").
+            self._dot_action(
+                data["callee"], "dropin_dial",
+                {"session": data["session"], "caller": data["caller"]},
+                session_id=data["session"],
+            )
         elif kind == "connect":
             relay = self._relays.get(data["session"])
             if relay is None:
@@ -215,11 +224,14 @@ class DropInRuntime:
 
     # -- dot transport (Card A: the physical dial) -------------------------
 
-    def _dot_action(self, device_id: str, action: str, args: dict[str, str]) -> None:
+    def _dot_action(self, device_id: str, action: str, args: dict[str, str],
+                    session_id: str | None = None) -> None:
         """Invoke an ESPHome user-defined action on one dot over its existing
         native-API connection. Fire-and-forget: the dot answers with its
         session state (dropin_dial refuses busy with an error reply, D-DI-6),
-        and failures log rather than unwind the state machine."""
+        and failures log rather than unwind the state machine — except for a
+        failed DIAL, which tears down the ringing session (see
+        _teardown_failed_ring)."""
         facts = dot_for(device_id)
         if facts is None:
             # Not a known dot (e.g. a phone: peer) — nothing physical to dial.
@@ -230,15 +242,38 @@ class DropInRuntime:
             # The state machine emits from SyncWorker threads; service calls
             # must resolve hass + the esphome dynamic-action registry on the
             # loop thread (async_get_hass thread-check otherwise throws).
-            self.hass.add_job(self._dot_action_async, service, args)
+            self.hass.add_job(self._dot_action_async, service, args, session_id)
         except Exception as err:  # noqa: BLE001 — transport must never break the machine
             _LOGGER.warning("drop-in dot action %s failed: %s", service, err)
+            self._teardown_failed_ring(action, session_id, err)
 
-    async def _dot_action_async(self, service: str, args: dict[str, str]) -> None:
+    async def _dot_action_async(self, service: str, args: dict[str, str],
+                                session_id: str | None = None) -> None:
         try:
-            await self.hass.services.async_call("esphome", service, args, blocking=False)
+            # blocking=True surfaces the transport error (APIConnectionError
+            # etc.) here instead of HA's service-execution error log.
+            await self.hass.services.async_call("esphome", service, args, blocking=True)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("drop-in dot action esphome.%s failed: %s", service, err)
+            self._teardown_failed_ring(service, session_id, err)
+
+    def _teardown_failed_ring(self, service: str, session_id: str | None,
+                              err: Exception) -> None:
+        """If a ring's transport to the callee dot failed, the dot will never
+        ring and the session would sit RINGING (caller wedged STATE_DIALING)
+        until the 30s gc ring timeout. End it now — the machine's teardown
+        path chimes/resumes/ends both dots exactly like a real hangup and
+        frees the caller to dial again immediately."""
+        if session_id is None or not str(service).endswith("_dial"):
+            return  # only ring transport failures end a session early
+        session = self.machine.sessions.get(session_id)
+        if session is None or session.state != SESSION_RINGING:
+            return  # answered or already gone — nothing to reclaim
+        _LOGGER.warning(
+            "drop-in ring transport failed (session=%s): %s — tearing down",
+            session_id, err,
+        )
+        self.machine.hangup(session_id)
 
     def endpoint_session_state(self, device_id: str) -> str:
         """The dot-published session state for dropin_state context exposure."""

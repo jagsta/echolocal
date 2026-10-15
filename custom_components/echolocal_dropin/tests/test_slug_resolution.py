@@ -20,6 +20,8 @@ class FakeHass:
         def async_register(self, *a, **k):
             pass
     services = _Services()
+    def add_job(self, *args):
+        pass
     def async_add_executor_job(self, fn, *a):
         return fn(*a)
 
