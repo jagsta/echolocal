@@ -265,12 +265,18 @@ func (i *Intercom) CallerConnect() {
 	s := i.session
 	state, ok := s.CallerJoin()
 	if !ok {
-		slog.Warn("intercom caller connect refused", "state", state)
+		// Expected duplicate/late connect on an InCall dot: idempotent
+		// no-op by design (the connect event fires at BOTH endpoints) —
+		// not a warn-worthy condition on every call.
+		slog.Debug("intercom caller connect refused", "state", state)
 		return
 	}
 	if err := i.vs.StartTurn("", nil); err != nil {
 		slog.Error("intercom caller turn open failed", "err", err)
 		s.End("dropped")
+		// Match Accept(): the session is already gone — do NOT fall through
+		// and mark the turn open on a dropped session.
+		return
 	}
 	i.mu.Lock()
 	i.turnOpen = true

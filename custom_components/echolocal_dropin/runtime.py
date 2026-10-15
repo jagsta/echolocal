@@ -18,6 +18,7 @@ from typing import Any
 
 from homeassistant.const import STATE_PLAYING
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
@@ -88,28 +89,34 @@ class DropInRuntime:
             # TTS target = the dot's own assist_satellite entity (its voice
             # reply path; D-DI-5 offline-at-dial notice).
             self.register_media(device_id, facts["satellite_entity"])
-        async def handle_call(call: ServiceCall) -> None:
-            await self.hass.async_add_executor_job(self._call_service, call.data)
+        def wrapped(handler):
+            """Run a service impl in the executor; translate CallError into
+            homeassistant.exceptions.HomeAssistantError so HA's service layer
+            surfaces expected conditions (busy mid-call, permission denied,
+            no such session) as clean user-facing service errors instead of
+            HTTP 500 + full traceback. Impl still raises CallError
+            internally — internal callers (call_or_report_offline,
+            voice_answer) keep catching CallError directly; only this HA
+            boundary converts."""
+            async def run(call: ServiceCall) -> None:
+                try:
+                    await self.hass.async_add_executor_job(handler, call.data)
+                except CallError as err:
+                    raise HomeAssistantError(str(err)) from err
+            return run
 
-        async def handle_accept(call: ServiceCall) -> None:
-            await self.hass.async_add_executor_job(self._accept_service, call.data)
-
-        async def handle_hangup(call: ServiceCall) -> None:
-            await self.hass.async_add_executor_job(self._hangup_service, call.data)
-
-        async def handle_set_permission(call: ServiceCall) -> None:
-            await self.hass.async_add_executor_job(self._set_permission_service, call.data)
+        handle_call = wrapped(self._call_service)
+        handle_accept = wrapped(self._accept_service)
+        handle_hangup = wrapped(self._hangup_service)
+        handle_set_permission = wrapped(self._set_permission_service)
 
         self.hass.services.async_register(DOMAIN, SERVICE_CALL, handle_call)
         self.hass.services.async_register(DOMAIN, SERVICE_ACCEPT, handle_accept)
         self.hass.services.async_register(DOMAIN, SERVICE_HANGUP, handle_hangup)
         self.hass.services.async_register(DOMAIN, SERVICE_SET_PERMISSION, handle_set_permission)
 
-        async def handle_voice_answer(call: ServiceCall) -> None:
-            await self.hass.async_add_executor_job(self.voice_answer, call.data)
-
-        async def handle_voice_hangup(call: ServiceCall) -> None:
-            await self.hass.async_add_executor_job(self.voice_hangup, call.data)
+        handle_voice_answer = wrapped(self.voice_answer)
+        handle_voice_hangup = wrapped(self.voice_hangup)
 
         self.hass.services.async_register(DOMAIN, SERVICE_VOICE_ANSWER, handle_voice_answer)
         self.hass.services.async_register(DOMAIN, SERVICE_VOICE_HANGUP, handle_voice_hangup)
