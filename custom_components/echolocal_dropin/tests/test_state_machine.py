@@ -197,6 +197,12 @@ def test_drop_then_single_reconnect():
     assert machine.endpoint_state(callee.device_id) == STATE_IN_CALL  # reconnect window
     machine.try_reconnect("s1", callee.device_id)
     assert machine.endpoint_state(callee.device_id) == STATE_IN_CALL
+    # The reconnect fan-out must carry `caller` (same event shape as _connect),
+    # or the runtime sends the caller the peerless dropin_answer join instead
+    # of dropin_connect+peer and the caller's media leg never restarts.
+    connect = rec.kinds("connect")[-1]
+    assert connect["caller"] == caller.device_id
+    assert connect["endpoints"] == [caller.device_id, callee.device_id]
     # second drop -> no more retries, session tears down
     machine.drop("s1", callee.device_id)
     assert machine.endpoint_state(callee.device_id) == STATE_IDLE

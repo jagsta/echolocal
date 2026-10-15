@@ -390,7 +390,15 @@ class CallStateMachine:
         ep.state = STATE_IN_CALL
         session.state = SESSION_ACTIVE
         self._reconnect_target = None
-        self.emit("connect", {"session": session_id, "endpoints": session.device_ids()})
+        self.emit("connect", {
+            "session": session_id,
+            "endpoints": session.device_ids(),
+            # Same shape as _connect's event: `caller` is what the runtime's
+            # connect fan-out keys on — without it the caller dot gets the
+            # callee's peerless dropin_answer join and never offers, so a
+            # mid-call reconnect cannot resume the caller's leg (D-DI-4).
+            "caller": session.endpoints[0].device_id,
+        })
         return True
 
     def _teardown(self, session: Session, reason: str, at: float) -> None:

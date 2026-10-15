@@ -380,9 +380,16 @@ class DropInRuntime:
 
     def _other_endpoint(self, data: dict[str, Any], device_id: str) -> str | None:
         """The peer endpoint of ``device_id`` within this session."""
-        for candidate in data.get("endpoints") or []:
-            if str(candidate) != str(device_id):
-                return str(candidate)
+        candidates = [str(c) for c in (data.get("endpoints") or [])]
+        if not candidates:
+            # Same both-shape read as _transport: the ring event carries
+            # caller/callee, the connect event an endpoints list.
+            candidates = [
+                str(c) for c in (data.get("caller"), data.get("callee")) if c
+            ]
+        for candidate in candidates:
+            if candidate != str(device_id):
+                return candidate
         return None
 
     def _connect_args(self, data: dict[str, Any], device_id: str) -> dict[str, str]:
