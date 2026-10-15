@@ -14,8 +14,14 @@ const (
 	StreamFeedback = schema.StreamFeedback
 
 	// StreamIntercom carries drop-in call audio on the output mixer's stream
-	// bus, alongside the other five lanes (D-DI-4 v1: the peer's PCM arrives as
-	// VoiceAssistantAudio frames and is pushed here for playback).
+	// bus, alongside the other five lanes (D-DI-4: the peer's call audio —
+	// the dot↔dot leg's decoded Opus frame, or the mothballed HA relay's
+	// VoiceAssistantAudio frames — is pushed here for playback).
+	//
+	// Like every lane, its int16s are mixed verbatim into the codec's
+	// interleaved 48kHz stereo period, so producers must hand over
+	// Rate/Channels audio: 16kHz mono goes through speaker.PlayMono, which
+	// converts (see the D-P2P-6 correction in specs/dot-p2p-decisions.md).
 	StreamIntercom = Stream("intercom")
 )
 

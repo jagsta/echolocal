@@ -10,9 +10,11 @@ package intercom
 //     detection and calls never starve each other (D-DI-4 v1: frames flow
 //     device→HA as VoiceAssistantAudio via VS.SendAudio).
 //   - speaker playback: config.StreamIntercom, the NEW mixer lane added in
-//     internal/config/volume.go — the peer's VoiceAssistantAudio PCM (little
-//     -endian 16kHz mono, same encoding the satellite's reply stream decodes)
-//     is played on it so call volume is independently adjustable.
+//     internal/config/volume.go — the peer's call audio (little-endian 16kHz
+//     mono: the dot↔dot leg's decoded Opus frame, or the satellite reply
+//     stream's encoding) is played on it so call volume is independently
+//     adjustable. The lane is consumed as 48kHz stereo interleaved int16, so
+//     PlayMono converts each frame first (D-P2P-6 correction, 15 Oct).
 //   - turn lifecycle: voice.VS() StartTurn/SendAudio/EndAudio hold ONE
 //     perpetual turn per call (probe finding; no go-esphome-device changes).
 //   - state exposure: a TextSensor on the microphone sub-device so HA sees
@@ -491,10 +493,24 @@ func (i *Intercom) playback() func([]int16) {
 	return i.playIntercom
 }
 
+// playLane hands call audio to the intercom mixer lane. It is a var so the
+// wiring test can pin the shape handed to the speaker without a device.
+var playLane = func(s config.Stream, mono []int16) {
+	speaker.Get().PlayMono(s, mono)
+}
+
 // playIntercom plays decoded peer audio on the intercom mixer lane
 // (config.StreamIntercom — independent volume, D-DI-4).
+//
+// The producer format here is 16 kHz MONO (the leg's decoded Opus frame, and
+// the HA relay's VoiceAssistantAudio payload), which is the INPUT of the
+// mic/voice-native path — NOT the lane's own format. The lane is added
+// verbatim into the codec's 48 kHz stereo period, so it goes through
+// speaker.PlayMono, which resamples and interleaves exactly like PlayVoice
+// does for replies (D-P2P-6 as corrected 15 Oct: pushing raw 16 kHz mono put
+// 320 samples in 320 of 2048 slots = 3.33 ms of a 20 ms frame, one channel).
 func (i *Intercom) playIntercom(samples []int16) {
-	speaker.Get().PlayStream(config.StreamIntercom, samples)
+	playLane(config.StreamIntercom, samples)
 }
 
 // PlayPeer plays relayed call audio on the intercom mixer lane. The HA-side

@@ -71,6 +71,14 @@ type Player struct {
 	resampling upsample.Kind
 	splices    atomic.Uint64
 
+	// monoUpMu guards monoUp, the resampler PlayMono uses for 16 kHz mono
+	// producers (currently the dot↔dot intercom leg). Deliberately NOT
+	// p.voice: PlayVoice holds voiceMu across the whole conversion and
+	// Drain() resets the resampler, either of which would corrupt a
+	// continuous call stream.
+	monoUpMu sync.Mutex
+	monoUp   upsample.Resampler
+
 	tuning *asp.Tuning
 	chain  *asp.Chain
 	on     atomic.Bool
@@ -99,6 +107,7 @@ func (p *Player) Written() uint64 { return p.written.Load() }
 func New() *Player {
 	p := &Player{out: DetectOutput()}
 	p.voice, p.resampling = upsample.New(upsample.Sinc, Rate)
+	p.monoUp, _ = upsample.New(upsample.Sinc, Rate)
 	p.SetVolume(VolumeSteps)
 	p.on.Store(config.DefaultASP)
 
@@ -420,6 +429,31 @@ func (p *Player) PlayVoice(mono []int16) {
 	p.voiceMu.Unlock()
 
 	p.PlayStream(config.StreamVoice, out)
+}
+
+// PlayMono plays MONO samples at VoiceRate (16 kHz) on lane s. The mixer adds
+// every lane's int16s verbatim into the interleaved 48 kHz stereo period
+// buffer, so anything below the codec's layout must be converted first — and
+// that conversion is exactly what PlayVoice does for replies. A 16 kHz mono
+// producer (the dot↔dot intercom leg, whose frames arrive 320 samples/20 ms)
+// that pushed raw would land 320 of the period's 2048 slots: 3.33 ms of
+// audio for a 20 ms frame, on one channel only, played ~6× fast.
+func (p *Player) PlayMono(s config.Stream, mono []int16) {
+	p.PlayStream(s, p.codecLayout(mono))
+}
+
+// codecLayout resamples VoiceRate mono to Rate and interleaves it across
+// Channels, using PlayMono's own resampler (see the monoUp field comment).
+// Player literals built without New() (tests, benchmarks) get one lazily.
+func (p *Player) codecLayout(mono []int16) []int16 {
+	p.monoUpMu.Lock()
+	defer p.monoUpMu.Unlock()
+
+	if p.monoUp == nil {
+		p.monoUp, _ = upsample.New(upsample.Sinc, Rate)
+	}
+	// 64-bit capacity math for the same armv7 overflow reason as PlayVoice.
+	return p.monoUp.Run(mono, make([]int16, 0, int64(len(mono))*Rate/VoiceRate*Channels))
 }
 
 func (p *Player) Drain() {

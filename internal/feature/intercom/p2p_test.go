@@ -19,6 +19,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	esphome "github.com/ygelfand/go-esphome-device"
 
+	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/feature/voice"
 )
 
@@ -60,8 +61,10 @@ func testIntercom(play func([]int16)) *Intercom {
 }
 
 // TestP2PCodecIs16kMono pins D-P2P-6: the dot↔dot track is Opus 16kHz MONO —
-// the mic's native rate and the StreamIntercom consumer encoding — never the
-// phone leg's 48k stereo.
+// the mic's native rate, so neither dot resamples on the capture/encode side —
+// never the phone leg's 48k stereo. The inbound half is converted to the
+// codec's 48k stereo layout at the speaker seam, not here (D-P2P-6 correction
+// of 15 Oct, review F1 on this card; pinned by TestPlayIntercomPushConverts).
 func TestP2PCodecIs16kMono(t *testing.T) {
 	c := p2pCodec()
 	if c.MimeType != webrtc.MimeTypeOpus {
@@ -468,5 +471,46 @@ func TestConnectWithoutPeerStartsNoLeg(t *testing.T) {
 	i.CallerConnectTo("di-1", "kitchen-dot.jagbains.org", transportP2P)
 	if i.activeLeg() != nil {
 		t.Fatal("leg started on a session whose turn never opened")
+	}
+}
+
+// TestPlayIntercomPushConverts pins the F1 fix at the wiring site (review of
+// card t_be5293f6): the sink the leg is handed — playback() with no injected
+// sink — must be playIntercom, and playIntercom must hand the frame to the
+// lane through the converting push (speaker.PlayMono), never the raw
+// PlayStream path that put 320 samples into 320 of the codec period's 2048
+// slots. The frame's arrival format is pinned here (the leg's decoded 16 kHz
+// mono 320-sample frame, exactly what the caller hands over); the 320 → 1920
+// slot conversion is pinned by speaker's TestPlayMonoFillsTheCodecPeriod.
+func TestPlayIntercomPushConverts(t *testing.T) {
+	var lane config.Stream
+	var got []int16
+	old := playLane
+	playLane = func(s config.Stream, mono []int16) {
+		lane, got = s, append([]int16(nil), mono...)
+	}
+	defer func() { playLane = old }()
+
+	i := &Intercom{}
+	frame := make([]int16, p2pSamples)
+	for n := range frame {
+		frame[n] = 1000
+	}
+	i.playback()(frame) // what newDotLeg receives as its play func
+
+	if lane != config.StreamIntercom {
+		t.Fatalf("lane = %q, want %q", lane, config.StreamIntercom)
+	}
+	if len(got) != p2pSamples {
+		t.Fatalf("lane push got %d samples, want the decoded %d", len(got), p2pSamples)
+	}
+	// An injected sink still wins (the pump/leg tests depend on it), so the
+	// converting lane push is the production default only.
+	before := len(got)
+	injected := false
+	i.play = func([]int16) { injected = true }
+	i.playback()(frame)
+	if !injected || len(got) != before {
+		t.Fatal("an injected playback sink must bypass the speaker lane")
 	}
 }

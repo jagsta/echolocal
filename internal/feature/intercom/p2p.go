@@ -14,9 +14,11 @@ package intercom
 //   - D-P2P-5: ICE = host candidates only (no STUN/TURN); the CALLER always
 //     offers and the callee answers inline over HTTP.
 //   - D-P2P-6: this leg runs 16kHz MONO Opus — the mic.Source native rate
-//     (hardware/mic Rate 16000, FrameSamples 320 = 20ms) and the
-//     config.StreamIntercom consumer encoding, so armv7 spends no CPU on
-//     resample/upmix. The phone path stays 48k stereo on its own connection.
+//     (hardware/mic Rate 16000, FrameSamples 320 = 20ms), so the capture and
+//     encode halves cost armv7 no resample CPU. The phone path stays 48k
+//     stereo on its own connection. The INBOUND half is converted to the
+//     codec's 48k stereo layout at the speaker seam (speaker.PlayMono), not
+//     here — see the correction note in specs/dot-p2p-decisions.md D-P2P-6.
 //   - D-P2P-8: nothing here touches wake suppression (detect.PauseWhen,
 //     voice.SetGuard) — and once the leg is live, no call audio enters the
 //     ESPHome voice turn at all, so the assistant-hijack failure mode cannot
@@ -312,7 +314,9 @@ func (l *dotLeg) drain(sender *webrtc.RTPSender) {
 }
 
 // receive decodes inbound RTP onto the intercom speaker lane (D-P2P-6:
-// 16kHz mono, the config.StreamIntercom encoding).
+// 16kHz mono on the wire, exactly the mic frame format both dots encode).
+// The lane itself is 48kHz stereo, so the sink (wiring.playIntercom →
+// speaker.PlayMono) owns the resample/interleave.
 func (l *dotLeg) receive(t *webrtc.TrackRemote) {
 	dec, err := opus.NewDecoderWithOutput(p2pClockRate, p2pChannels)
 	if err != nil {

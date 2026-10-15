@@ -69,12 +69,27 @@ early because the v1 prerequisite (HA frame inlet) turned out to be unsound.
   pattern), so no second round-trip is needed. Callee auto-answers: accept was
   already authorized by HA before connect fires, so the callee's HTTP handler
   answers without a second interactive gate.
-- **D-P2P-6: dot↔dot leg runs 16kHz MONO Opus** (mic Source native rate, 16k
-  mono int16 = the StreamIntercom consumer encoding per relay.go codec note;
-  no resample/upmix CPU on armv7). The phone path stays 48k stereo
-  (libcountertop rtc.go MimeTypeOpus ClockRate 48000 Channels 2) — separate
-  tracks on separate connections, no capability conflict. Any dot↔dot→phone
-  bridge work later owns the transcode then.
+- **D-P2P-6: dot↔dot leg runs 16kHz MONO Opus** (mic Source native rate;
+  16k mono is what the mic captures and what HA's VoiceAssistantAudio payload
+  carries — the send/encode half needs no resample). The phone path stays 48k
+  stereo (libcountertop rtc.go MimeTypeOpus ClockRate 48000 Channels 2) —
+  separate tracks on separate connections, no capability conflict. Any
+  dot↔dot→phone bridge work later owns the transcode then.
+  - **Correction (15 Oct, review F1 on card t_be5293f6):** the original text
+    claimed 16k mono is "the StreamIntercom consumer encoding per relay.go
+    codec note". That was wrong: relay.py's note describes the HA *wire*
+    payload, not the speaker lane. The lane's int16s are added verbatim into
+    the codec's interleaved 48 kHz stereo period (speaker.go Rate 48000 /
+    Channels 2; mix/bus.go `add`), with no per-lane rate and no resampler
+    downstream — so a raw 16k mono frame played 6× fast on one channel
+    (measured: 320 slots = 3.33 ms for a 20 ms frame). The WIRE format is
+    unchanged (16k mono Opus, capture/encode still resample-free); the
+    INBOUND half is converted at the speaker seam, exactly as PlayVoice does
+    for replies — `speaker.PlayMono` = resample + interleave, pinned by
+    speaker.TestPlayMonoFillsTheCodecPeriod (320 mono in → 1920 slots =
+    20.000 ms). "No resample CPU" therefore holds for the mic/encode half
+    only; the decode half pays one 3× sinc upsample per frame.
+
 - **D-P2P-7: the HA-relay send-half is MOTHBALLED behind a transport arg, not
   deleted.** `dropin_connect` gains `transport=p2p|harelays` (default p2p).
   The dots' turn-open work (mute, LED, mic listener, session machine) is
