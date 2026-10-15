@@ -42,6 +42,12 @@ SESSION_ACTIVE = "active"
 SESSION_RECONNECTING = "reconnecting"
 SESSION_ENDED = "ended"
 
+# Dot-published intercom session sensor values (the dot's own State strings,
+# wiring.go session.go). "in-call" is hyphenated dot-side; the HA endpoint
+# vocabulary (STATE_IN_CALL) uses the underscore form — the sensor value is
+# the dot's word, never the machine's.
+DOT_SESSION_ACCEPTED = ("in-call", "muted", "joined")
+
 SERVICE_CALL = "call"
 SERVICE_ACCEPT = "accept"
 SERVICE_HANGUP = "hangup"

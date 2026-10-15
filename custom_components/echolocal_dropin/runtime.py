@@ -19,10 +19,14 @@ from typing import Any
 from homeassistant.const import STATE_PLAYING
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 
 from .const import (
     DOMAIN,
+    DOT_SESSION_ACCEPTED,
     PERMISSION_ALLOW,
     PERMISSION_ALLOW_HOUSEHOLD,
     PERMISSION_DENY,
@@ -42,6 +46,7 @@ from .device_map import (
     DROPIN_DEVICE_MAP,
     dot_available,
     dot_for,
+    session_sensor_for,
     session_state,
 )
 from .relay import StarRelay
@@ -75,6 +80,7 @@ class DropInRuntime:
         self._media_targets: dict[str, str] = {}  # device_id -> media_player entity_id
         self._paused_for_call: set[str] = set()
         self.device_available: Any = None  # injectable callee-availability probe
+        self._session_sensor_unsubs: list[Any] = []
 
     def emit(self, kind: str, data: dict) -> None:
         """Local event tap used by accepted-risk paths (offline-at-dial)."""
@@ -131,10 +137,32 @@ class DropInRuntime:
 
         self._gc_unsub = async_track_time_interval(self.hass, _gc_tick, timedelta(seconds=5))
 
+        # t_108fc818: the dot is the ONLY observer of a physical accept
+        # (action button) and of the accept it makes for itself. Until this
+        # subscription existed the runtime READ the session sensor on demand
+        # (utterance resolution) but never LISTENED, so a dot-native accept
+        # painted the dot InCall while HA's machine stayed RINGING: no
+        # connect event, StarRelay never opened, no audio anywhere, and the
+        # 30s ring_timeout force-ended both dots (live 15 Oct 11:47).
+        sensors = [
+            sensor
+            for sensor in (session_sensor_for(d) for d in _all_dots())
+            if sensor
+        ]
+        if sensors:
+            self._session_sensor_unsubs.append(
+                async_track_state_change_event(
+                    self.hass, sensors, self._async_session_sensor_event,
+                )
+            )
+
     async def async_unload(self) -> None:
         if getattr(self, "_gc_unsub", None) is not None:
             self._gc_unsub()
             self._gc_unsub = None
+        for unsub in getattr(self, "_session_sensor_unsubs", []) or []:
+            unsub()
+        self._session_sensor_unsubs = []
         for session_id in list(self.machine.sessions):
             self.machine.hangup(session_id)
 
@@ -289,6 +317,99 @@ class DropInRuntime:
             session_id, err,
         )
         self.machine.hangup(session_id)
+
+    # -- dot-native accept: session sensor -> HA machine (t_108fc818) ------
+
+    async def _async_session_sensor_event(self, event: Any) -> None:
+        """HA state_changed callback for the dots' intercom session sensors."""
+        data = event.data
+        self.handle_session_sensor_change(
+            data.get("entity_id"), data.get("old_state"), data.get("new_state"),
+        )
+
+    def _device_for_session_sensor(self, entity_id: str | None) -> str | None:
+        for device_id in _all_dots():
+            if session_sensor_for(device_id) == entity_id:
+                return device_id
+        return None
+
+    def _ringing_session_for_device(self, device_id: str) -> Any | None:
+        """The ONE ringing session whose CALLEE is this device, or None.
+
+        Keyed by the endpoint in RINGING (the callee), never positionally: a
+        session in any other state (ACTIVE/reconnecting/ended) or a device
+        that is the caller (STATE_DIALING) must not match — that mismatch is
+        what makes the accept path idempotent.
+        """
+        for session in self.machine.sessions.values():
+            if session.state != SESSION_RINGING:
+                continue
+            endpoint = session.endpoint(device_id)
+            if endpoint is not None and endpoint.state == STATE_RINGING:
+                return session
+        return None
+
+    def handle_session_sensor_change(self, entity_id: str | None, old_state: Any,
+                                     new_state: Any, at: float | None = None) -> str | None:
+        """A dot-published session sensor transition -> the HA machine.
+
+        A physical ACCEPT (action button) or any dot-native accept is
+        executed entirely dot-side (wiring.Accept → Session.InCall): the dot
+        chimes, opens its turn, and repaints this sensor — HA is never told
+        anything. Without this bridge the machine stayed RINGING, no
+        'connect' event fired, StarRelay never opened, neither dot got
+        dropin_connect, and the 30s ring_timeout force-ended both dots with
+        no audio anywhere (live 15 Oct 11:47). Here that transition becomes
+        machine.accept() on the ringing session keyed by the CALLEE, which is
+        the single accepted route to the relay: accept → connect event →
+        _on_event → StarRelay.open + dropin_connect to both endpoints.
+
+        Guarding:
+        - only transitions INTO an accepted dot state (in-call/muted/joined)
+          act; "ringing" is our OWN dial echo (dropin_dial painted the dot)
+          and accepting it would answer our own ring; "idle" is the dot
+          ending its own session, which this path deliberately does not
+          mirror (HA-side hangup/teardown is unchanged by this card).
+        - no ringing session for that callee (already ACTIVE, unknown, or
+          this device is the caller) → ignore, so duplicate/late in-call
+          paints, mute toggles, and the ring→in-call→muted sequence can never
+          emit a second connect.
+        - idempotent by CONSTRUCTION, not by a bookkeeping set: accept is only
+          legal while the callee endpoint is RINGING and leaves the session
+          ACTIVE, so every later accepted-state paint for the same session
+          (mute toggles, an unmute back to in-call, a repaint) finds no
+          ringing session and is dropped before it can emit a second
+          'connect'. Nothing extra needs debouncing: the ring floor is
+          enforced dot-side (D-DI-3) and re-enforced by machine.accept(); an
+          accept refused as too early (clock skew) does not wedge anything —
+          the dot's next accepted-state paint simply retries.
+        """
+        device_id = self._device_for_session_sensor(entity_id)
+        if device_id is None:
+            return None
+        if getattr(new_state, "state", None) not in DOT_SESSION_ACCEPTED:
+            return None
+        session = self._ringing_session_for_device(device_id)
+        if session is None:
+            _LOGGER.debug(
+                "drop-in dot accept ignored: no ringing session for %s (sensor=%s)",
+                device_id, entity_id,
+            )
+            return None
+        session_id = session.session_id
+        try:
+            self.machine.accept(session_id, device_id, at=at)
+        except CallError as err:
+            _LOGGER.info(
+                "drop-in dot accept refused (session=%s device=%s): %s",
+                session_id, device_id, err,
+            )
+            return None
+        _LOGGER.info(
+            "drop-in dot accept: session=%s callee=%s sensor %s -> %s -> connect",
+            session_id, device_id, getattr(old_state, "state", None), new_state.state,
+        )
+        return session_id
 
     def endpoint_session_state(self, device_id: str) -> str:
         """The dot-published session state for dropin_state context exposure."""
