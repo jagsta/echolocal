@@ -412,7 +412,11 @@ func (p *Player) Adjust(rewrite func([]int16)) { p.bus.Adjust(config.StreamMedia
 
 func (p *Player) PlayVoice(mono []int16) {
 	p.voiceMu.Lock()
-	out := p.voice.Run(mono, make([]int16, 0, len(mono)*Rate/VoiceRate*Channels))
+	// 64-bit math: on armv7 (32-bit int) len(mono)*Rate overflows int32 for replies
+	// longer than ~45s of samples (74752 samples * 48000 = 3.59e9 > 2^31) and the
+	// resulting negative capacity panics 'makeslice: cap out of range' — this killed
+	// echod mid-voice-reply on the lounge dot (15 Oct).
+	out := p.voice.Run(mono, make([]int16, 0, int64(len(mono))*Rate/VoiceRate*Channels))
 	p.voiceMu.Unlock()
 
 	p.PlayStream(config.StreamVoice, out)
