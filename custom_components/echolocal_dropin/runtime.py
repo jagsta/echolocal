@@ -25,6 +25,7 @@ from homeassistant.helpers.event import (
 )
 
 from .const import (
+    ANNOUNCE_ON_RING,
     DOMAIN,
     DOT_SESSION_ACCEPTED,
     PERMISSION_ALLOW,
@@ -87,6 +88,13 @@ class DropInRuntime:
         self._paused_for_call: set[str] = set()
         self.device_available: Any = None  # injectable callee-availability probe
         self._session_sensor_unsubs: list[Any] = []
+        # Ring-announce cue gate (t_61af01ce): entry option, default ON. The
+        # __init__ path is only for production wiring; tests inject it after
+        # __new__ the same way they inject device_available.
+        self.announce_on_ring = True
+        options = getattr(entry, "options", None) if entry is not None else None
+        if options is not None:
+            self.announce_on_ring = bool(options.get(ANNOUNCE_ON_RING, True))
 
     def emit(self, kind: str, data: dict) -> None:
         """Local event tap used by accepted-risk paths (offline-at-dial)."""
@@ -288,6 +296,20 @@ class DropInRuntime:
         if kind == "ring":
             # Callee chime + LED ring via echod's existing expose (D-DI-3).
             self._media_pause(data["callee"])
+            # Ring-announce cue (t_61af01ce, default ON): the callee's dot
+            # speaks "<caller> is dropping in" via its assist_satellite
+            # announce path — the SAME tts.speak -> VoiceAssistantAnnounce
+            # route the offline-at-dial notice already uses (D-DI-6), which
+            # plays through the announce sound claim OUTSIDE any voice turn:
+            # it consumes no mic (nothing can be heard/replied — the D-P2P-8
+            # bug class) and touches neither the intercom media nor the P2P
+            # offer (which is only constructed at connect, not at ring).
+            # Fire-and-forget: an announce failure must NOT tear the ring
+            # down, so announce is skipped on the dot-action failure path.
+            # getattr: test runtimes built via __new__ (no __init__) default
+            # to the ON state, exactly like production.
+            if getattr(self, "announce_on_ring", True):
+                self._announce_on_callee(data)
             # Card A: transport the ring to the dot — invoke the callee's
             # ESPHome dropin_dial action (chime/LED/session sensor paint
             # happens dot-side the moment Session.Ring() fires). Failure
@@ -761,6 +783,40 @@ class DropInRuntime:
         self.hass.services.call("tts", "speak", {
             "entity_id": entity, "media_player_entity_id": entity, "message": message,
         }, blocking=False)
+
+    def _announce_on_callee(self, ring_data: dict[str, Any]) -> None:
+        """Ring-announce cue (t_61af01ce): '<caller> is dropping in' spoken on
+        the CALLEE's dot at ring, fire-and-forget.
+
+        Mechanism (investigated, t_61af01ce step 1): tts.speak on the
+        callee's assist_satellite entity — the exact route the
+        offline-at-dial notice already uses. HA's assist_satellite forwards
+        it as VoiceAssistantAnnounceRequest; dot-side (go-esphome-device
+        voice.go -> libcountertop turn/announce.go) the announcement plays
+        through the announce sound claim on the speaker and NOTHING else:
+        no voice turn is started (StartConversation is never set by
+        tts.speak, so no mic is consumed — the D-P2P-8 bug class cannot
+        recur), the ring chime/LED are untouched, and no P2P offer exists
+        yet (it is only constructed at connect). The name is the caller's
+        pairing/room identity the machine already carries (state_machine
+        ring_data.caller_name; phone peers announce their display name).
+        Failures log only — a failed announce must never tear down a ring
+        (unlike dropin_dial, see _teardown_failed_ring).
+        """
+        callee = str(ring_data.get("callee") or "")
+        entity = self._media_targets.get(callee)
+        name = str(ring_data.get("caller_name") or "someone").strip()
+        if entity is None:
+            _LOGGER.debug("no tts target for %s; ring announce skipped", callee)
+            return
+        message = f"{name} is dropping in"
+        _LOGGER.info("drop-in ring announce: %s (callee=%s entity=%s)", message, callee, entity)
+        try:
+            self.hass.services.call("tts", "speak", {
+                "entity_id": entity, "media_player_entity_id": entity, "message": message,
+            }, blocking=False)
+        except Exception as err:  # noqa: BLE001 — never tear a ring down on a failed cue
+            _LOGGER.warning("drop-in ring announce failed: %s", err)
 
     def _make_send(self, session_id: str):
         def send(device_id: str, frame: bytes) -> None:

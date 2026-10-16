@@ -63,6 +63,11 @@ SERVICE_SET_PERMISSION = "set_permission"
 SERVICE_VOICE_ANSWER = "voice_answer"
 SERVICE_VOICE_HANGUP = "voice_hangup"
 
+# Ring-announce cue (t_61af01ce): the callee's dot speaks "<caller> is
+# dropping in" (assist_satellite announce path) as/after it rings. Default ON;
+# the entry option is a one-way gate, no second value to configure.
+ANNOUNCE_ON_RING = "announce_on_ring"
+
 # D-DI-8 card 6: phone/web caller identity convention. An unregistered web
 # caller posts its offer with source id "phone:<display-name>"; it is treated
 # as an ordinary endpoint in the per-pair permission map (default

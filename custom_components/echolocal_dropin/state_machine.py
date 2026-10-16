@@ -235,7 +235,15 @@ class CallStateMachine:
                 self.sessions[session_id] = mutual
                 self.emit(
                     "ring",
-                    {"session": session_id, "callee": callee.device_id, "caller": caller.device_id},
+                    {
+                        "session": session_id,
+                        "callee": callee.device_id,
+                        "caller": caller.device_id,
+                        # t_61af01ce: the reown ring announces the same way.
+                        "caller_name": phone_display_name(caller.device_id)
+                        if is_phone_source(caller.device_id)
+                        else caller.room.replace("_", " "),
+                    },
                 )
                 self.emit(
                     "mutual_dial_reowned",
@@ -272,7 +280,9 @@ class CallStateMachine:
         self._busy_rejects.pop(caller.device_id, None)
         self._busy_rejects.pop(callee.device_id, None)
         # D-DI-8 card 6: phone peers carry their display name straight through
-        # to the ring announcement (no discovery dependence).
+        # to the ring announcement (no discovery dependence). The ring-announce
+        # cue (t_61af01ce) needs a callee-facing label for EVERY caller:
+        # phone peers announce their display name, dot callers their room.
         ring_data = {
             "session": session_id,
             "callee": callee.device_id,
@@ -280,6 +290,8 @@ class CallStateMachine:
         }
         if is_phone_source(caller.device_id):
             ring_data["caller_name"] = phone_display_name(caller.device_id)
+        else:
+            ring_data["caller_name"] = caller.room.replace("_", " ")
         self.emit("ring", ring_data)
         return session
 

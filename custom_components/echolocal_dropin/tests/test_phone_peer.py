@@ -92,4 +92,7 @@ def test_phone_display_name_in_ring_notification():
         Endpoint("dev-callee", "living"),
     )
     dot_ring = rec.kinds("ring")[-1]
-    assert "caller_name" not in dot_ring
+    # t_61af01ce: dot callers now carry caller_name TOO — their room label
+    # (the announce cue speaks "<room> is dropping in"); only phone peers
+    # announce the display NAME rather than a room.
+    assert dot_ring["caller_name"] == "kitchen"
