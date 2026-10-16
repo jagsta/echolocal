@@ -785,9 +785,16 @@ class DropInRuntime:
         if entity is None:
             _LOGGER.debug("no tts target for %s; offline-at-dial notice skipped", caller_device)
             return
-        self.hass.services.call("tts", "speak", {
-            "entity_id": entity, "media_player_entity_id": entity, "message": message,
-        }, blocking=False)
+        # t_650b2f99: NEVER call hass.services.call() — the SYNC service API
+        # blocks the event loop (the 16 Oct 16:56 freeze: the ring-announce
+        # play_media stalled the loop, 'announce phase done' never logged,
+        # dial never dispatched, HA UI + both dots' STT dead). This notice is
+        # fire-and-forget, so hand the async call to the loop via add_job.
+        self.hass.add_job(self.hass.services.async_call(
+            "tts", "speak", {
+                "entity_id": entity, "media_player_entity_id": entity, "message": message,
+            }, blocking=False,
+        ))
 
     # -- Jag ruling R1a/R2 (t_903017d5): speak-before-ring -----------------
 
@@ -891,16 +898,20 @@ class DropInRuntime:
         )
 
     async def _announce_on_callee_async(self, ring_data: dict[str, Any]) -> None:
-        """Async awaitable wrapper around the speak: issues the (sync) service
-        call, then awaits long enough for the announcement to actually play.
+        """Speak the announce cue and await long enough for the announcement
+        to actually play. t_650b2f99: the service calls are the ASYNC API run
+        on the loop — the sync hass.services.call() here was the 16 Oct
+        16:56 event-loop freeze (media_player.play_media with a TTS
+        media-source blocked the loop; 'announce phase done' never logged,
+        dial never dispatched, UI + both dots' STT dead).
         The legacy satellite route reports success the moment HA queues the
         TTS — real completion is not observable without a pipeline event, so
         the small settle delay + the caller-side cap bound it. The play_media
         route returns once the media session is enqueued."""
-        self._announce_on_callee(ring_data)
+        await self._announce_on_callee(ring_data)
         await asyncio.sleep(0)  # yield to the loop so the service call lands
 
-    def _announce_on_callee(self, ring_data: dict[str, Any]) -> None:
+    async def _announce_on_callee(self, ring_data: dict[str, Any]) -> None:
         """Ring-announce cue (t_61af01ce, retargeted t_79ebd16b): '<name> is
         dropping in' spoken on the CALLEE's dot at ring, fire-and-forget.
 
@@ -944,7 +955,8 @@ class DropInRuntime:
         try:
             if speak_entity == entity:
                 # Unmapped dot: the legacy satellite tts.speak route.
-                self.hass.services.call("tts", "speak", {
+                # t_650b2f99: async API — the sync call() blocked the loop.
+                await self.hass.services.async_call("tts", "speak", {
                     "entity_id": entity, "media_player_entity_id": entity, "message": message,
                 }, blocking=False)
             else:
@@ -959,8 +971,10 @@ class DropInRuntime:
                 # mediaplayer player.go command()): Announcement=true routes to
                 # p.announce() -> the announce sound claim -> PlayVoice, which
                 # coexists with the intercom ring claim (verified: chime, WAV,
-                # chime, hangup all in one window). Fire-and-forget.
-                self.hass.services.call("media_player", "play_media", {
+                # chime, WAV, chime, hangup all in one window).
+                # Fire-and-forget. t_650b2f99: async API — the sync call()
+                # with a TTS media-source was the 16 Oct event-loop freeze.
+                await self.hass.services.async_call("media_player", "play_media", {
                     "entity_id": speak_entity,
                     "media_content_id": f"media-source://tts/cloud?message={message}",
                     "media_content_type": "announce",

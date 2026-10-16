@@ -317,3 +317,48 @@ def test_gate_off_dials_immediately_no_announce():
         "dot_action_async" in str(fn) and "dial" in str(args[0])
         for fn, *args in hass.jobs
     ), f"inline dropin_dial queued; jobs={hass.jobs}"
+
+
+def test_hanging_tts_cannot_stall_dial_within_cap():
+    """t_650b2f99 (the 16 Oct 16:56 freeze): a TTS service call that NEVER
+    returns (blocked backend / wedged media session) must not wedge the
+    event loop — the announce is capped at ANNOUNCE_TTS_CAP_SECONDS and the
+    dial dispatches within ~the cap. The sync hass.services.call() could
+    not be interrupted at all; the async API under asyncio.wait_for can."""
+    rt, hass, _events, _tts = make_runtime_with_tts()
+    rt.ANNOUNCE_TTS_CAP_SECONDS = 0.2  # test-scale cap
+    started = {"n": 0}
+
+    async def hanging_async_call(*args, **kwargs):
+        started["n"] += 1
+        await asyncio.sleep(60)  # simulates the wedged play_media
+
+    hass.async_call = hanging_async_call  # type: ignore[method-assign]
+    dial(rt)
+    fn, ring_data = announce_jobs(hass)[0]
+    t0 = time.monotonic()
+    _run_async(fn(ring_data))
+    elapsed = time.monotonic() - t0
+    assert started["n"] == 1, "the (async) speak was attempted"
+    assert elapsed < 3.0, f"dial dispatched within ~cap, not wedged (took {elapsed:.2f}s)"
+    assert any(
+        "dot_action_async" in str(fn2) and "dial" in str(args[0])
+        for fn2, *args in hass.jobs
+    ), "dropin_dial dispatched despite the hung announce"
+    assert rt.machine.endpoint_state(KIT) == "ringing"
+
+
+def test_no_sync_service_call_api_in_announce_paths():
+    """t_650b2f99 acceptance: the announce/tts paths must use the async
+    service API only — grep the runtime source for the SYNC
+    hass.services.call( outside comments/docstrings (it cannot be
+    interrupted once wedged, which froze the loop 16 Oct 16:56)."""
+    import inspect
+    src = inspect.getsource(DropInRuntime)
+    for lineno, line in enumerate(src.splitlines(), 1):
+        code = line.split("#", 1)[0]  # drop trailing comments
+        if not code.strip() or not code.strip().rstrip().endswith(")"):
+            continue  # docstring/comment lines and multi-line calls read at the closing paren
+        assert ".services.call(" not in code or ".services.async_call(" in code, (
+            f"runtime line {lineno} uses the SYNC service API: {line.strip()}"
+        )
