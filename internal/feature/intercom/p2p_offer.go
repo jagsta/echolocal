@@ -73,7 +73,7 @@ func (i *Intercom) answerPeerOffer(w http.ResponseWriter, r *http.Request) {
 	// only learns the peer host from that connect — so a ringing dot (the
 	// offer racing ahead of its own dropin_connect) and a dot already in an
 	// accepted call both pass; everything else is refused fail-closed.
-	if !i.session.OfferAuthorized() {
+	if !i.session.OfferAuthorized(m.Call) {
 		state := i.session.Now()
 		slog.Warn("dot offer refused", "from", m.From, "session", m.Call, "state", string(state))
 		http.Error(w, "refused: session is "+string(state), http.StatusForbidden)

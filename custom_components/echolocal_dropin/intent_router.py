@@ -97,7 +97,9 @@ class IntentRouter:
 
     def handle_drop_in_call(self, room: str, caller_device: str) -> None:
         area_id = resolve_room(room, self._aliases)
-        session_id = f"di-{caller_device}"
+        # t_469de14a: no session_id here — the runtime mints a fresh,
+        # per-dial id (the old "di-<caller>" constant id repeated on every
+        # re-dial, defeating the dot-side offer-gate freshness match).
         # Busy-reject (D-DI-6) is enforced BY the machine below; an intent
         # cannot bypass it because this is the same call-ownership path the
         # service uses (test_intent_no_second_call_bypass proves CallError).
@@ -109,7 +111,6 @@ class IntentRouter:
                 "caller_room": self._caller_room(caller_device),
                 "callee_device": self._callee_device(area_id),
                 "callee_room": area_id,
-                "session_id": session_id,
             },
         )
 

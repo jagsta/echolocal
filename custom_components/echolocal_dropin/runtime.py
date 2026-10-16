@@ -228,6 +228,14 @@ class DropInRuntime:
             self._alias_table = load_area_aliases()
         return self._alias_table
 
+    # -- t_469de14a: per-dial session ids -----------------------------------
+    # Session-id minting lives on the machine (fresh_session_id) so the
+    # runtime and the intent path share one contract; the runtime honors
+    # explicit session_id args verbatim and only auto-mints when absent.
+
+    def _fresh_session_id(self, caller_device: str, callee_device: str) -> str:
+        return self.machine.fresh_session_id(caller_device, callee_device)
+
     def _dial_service(self, data: dict[str, Any]) -> None:
         """echolocal_dropin.dial: offline-at-dial aware dial (D-DI-6).
 
@@ -248,8 +256,8 @@ class DropInRuntime:
             "caller_room": str(data.get("caller_room") or ""),
             "callee_device": callee_device,
             "callee_room": callee_room,
-            "session_id": str(data.get("session_id")
-                              or f"di-{caller_device}-{callee_device}"),
+            "session_id": str(data.get("session_id") or self._fresh_session_id(
+                caller_device, callee_device)),
             # the TTS notice speaks a friendly label, not the area id
             "_callee_label": room_label,
         })
@@ -272,7 +280,8 @@ class DropInRuntime:
             resolved = AREA_TO_DEVICE.get(str(data.get("caller_room") or ""))
             if resolved is not None:
                 caller_device = resolved
-        session_id = str(data.get("session_id") or f"di-{caller_device}-{callee_device}")
+        session_id = str(data.get("session_id") or self._fresh_session_id(
+            caller_device, callee_device))
         self.machine.call(
             session_id,
             Endpoint(caller_device, str(data["caller_room"])),

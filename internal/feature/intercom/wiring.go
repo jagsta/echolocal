@@ -358,10 +358,29 @@ func (i *Intercom) openCallTurn() bool {
 // CallerConnect is the caller-side counterpart of Accept (card A,
 // t_d767ce0a): HA invokes dropin_connect on the caller dot once the callee
 // accepted. Same turn mechanics, no ring-floor check (the CALLEE's machine
-// already enforced it).
-func (i *Intercom) CallerConnect() {
+// already enforced it). session carries the connect event's session id —
+// recorded into the machine (t_469de14a) so the offer gate's freshness
+// match covers in-call offers too; it also REFUSES a join whose id does not
+// match the dial this dot last armed (End clears it), which is the dot-side
+// backstop against a stale/late connect of a PRIOR call on a reused session
+// id re-joining a fresh ring: such a join was exactly the re-dial
+// auto-connect defect's other half.
+func (i *Intercom) CallerConnect(session string) {
 	s := i.session
-	state, ok := s.CallerJoin()
+	s.mu.Lock()
+	if s.now != Idle && s.dial != "" && session != "" && s.dial != session {
+		s.mu.Unlock()
+		// A connect for a DIFFERENT session id than the dial we answered.
+		// On the pre-t_469de14a id scheme (device-derived ids) a re-dial's
+		// leftover connect carried the SAME reused id — indistinguishable —
+		// which is why runtime.py now mints per-dial ids; when they differ
+		// here the join cannot belong to this dial and is refused.
+		slog.Warn("intercom caller connect refused: session id does not match the armed dial",
+			"join", session, "armed", s.dial, "state", string(s.now))
+		return
+	}
+	s.mu.Unlock()
+	state, ok := s.CallerJoin(session)
 	if !ok {
 		// Expected duplicate/late connect on an InCall dot: idempotent
 		// no-op by design (the connect event fires at BOTH endpoints) —
@@ -393,7 +412,7 @@ func (i *Intercom) CalleeJoin(session, transport string) {
 		slog.Debug("intercom callee join refused", "state", string(Idle))
 		return
 	}
-	i.CallerConnect()
+	i.CallerConnect(session)
 }
 
 // CallerConnectTo is the D-P2P entry point for the connect event: CallerConnect
@@ -406,7 +425,7 @@ func (i *Intercom) CalleeJoin(session, transport string) {
 // harelays transport nothing here starts; the v1 relay path is unchanged.
 func (i *Intercom) CallerConnectTo(session, peer, transport string) {
 	i.setTransport(transportOf(transport))
-	i.CallerConnect()
+	i.CallerConnect(session)
 	if transportOf(transport) != transportP2P || peer == "" {
 		if peer == "" && transportOf(transport) == transportP2P {
 			slog.Debug("intercom connect without peer", "session", session, "err", errNoPeer)

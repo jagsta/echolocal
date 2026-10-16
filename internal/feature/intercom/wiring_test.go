@@ -229,7 +229,7 @@ func TestMuteFlagResetsOnTeardownAndAccept(t *testing.T) {
 	// Call 1: join, mute in-call. CallerJoin straight from Idle mirrors HA's
 	// connect on the caller dot; the wire-installed teardown subscriber and
 	// Accept's resetMute cover both reset paths.
-	if _, ok := s.CallerJoin(); !ok {
+	if _, ok := s.CallerJoin("di-1"); !ok {
 		t.Fatal("join refused")
 	}
 	if got, ok := s.Mute(true); !ok || got != Muted {
@@ -254,7 +254,7 @@ func TestMuteFlagResetsOnTeardownAndAccept(t *testing.T) {
 	// Call 2 on the same (pre-fix poisoned) flag: join again — resetMute at
 	// CallerConnect re-asserts transmit-off is cleared — and the pump guard
 	// condition must now transmit.
-	if _, ok := s.CallerJoin(); !ok {
+	if _, ok := s.CallerJoin("di-2"); !ok {
 		t.Fatal("second join refused")
 	}
 	i.mu.Lock()

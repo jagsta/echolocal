@@ -43,7 +43,10 @@ func (i *Intercom) Actions() []*esphome.Action {
 				// including in the accept→connect window. Missing/unrecognised
 				// values fall back to the p2p default.
 				i.setTransport(transportOf(c.String("transport")))
-				if !s.Ring() {
+				// t_469de14a: carry the session id INTO the machine so the offer
+				// gate's freshness match (Session.OfferAuthorized(session)) is
+				// armed with the id of the dial THIS dot is answering.
+				if !s.RingWith(session) {
 					return map[string]any{"state": string(s.Now())},
 						fmt.Errorf("drop-in refused: dot is %s", s.Now())
 				}

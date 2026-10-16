@@ -170,6 +170,26 @@ class CallStateMachine:
     def mid_call(self, device_id: str) -> bool:
         return self.endpoint_state(device_id) in (STATE_RINGING, STATE_DIALING, STATE_IN_CALL)
 
+    # -- t_469de14a: per-dial session ids -----------------------------------
+
+    _SESSION_SEQ = 0
+
+    def fresh_session_id(self, caller_device: str, callee_device: str) -> str:
+        """A unique-per-dial session id (t_469de14a).
+
+        The dot-side D-P2P-4/5 offer gate keys offer freshness on the offer's
+        session id matching the id HA dialled the dot with. The old
+        caller+callee-derived id was IDENTICAL on every re-dial of the same
+        pair, so a re-dial seconds after a hangup could not be told apart
+        from the just-ended call — the observed auto-connect without a
+        button press. Kept human-readable so both dots' logs still join up
+        with HA's.
+        """
+        type(self)._SESSION_SEQ += 1
+        ts = int(self.now() * 1000)
+        return (f"di-{caller_device[:8]}-{callee_device[:8]}"
+                f"-{ts}-{type(self)._SESSION_SEQ}")
+
     # -- session lifecycle --------------------------------------------------
 
     def _find_pair_session(self, device_a: str, device_b: str) -> Session | None:

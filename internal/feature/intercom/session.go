@@ -64,6 +64,16 @@ type Session struct {
 	now  State
 	rang time.Time // when ringing began (ring floor reference)
 
+	// dial is the session id of the dial THIS dot is currently answering
+	// (t_469de14a freshness contract): armed by RingWith (the dot's
+	// dropin_dial), confirmed by Accept, cleared by End. The offer gate
+	// compares the OFFER's session id against it, so a stale or duplicated
+	// offer belonging to the PRIOR call on a REUSED session id (ids derive
+	// from caller+callee device ids, so consecutive dials repeat them) can
+	// never auto-answer a fresh ring — the fresh re-dial's dot genuinely
+	// rings and WAITS for the button/HA accept. Empty dial fails closed.
+	dial string
+
 	// endpoints is the call's participant set, modeled as a LIST per the
 	// 3-way roadmap constraint (specs/dropin-decisions.md): v1 exercises
 	// exactly two, but nothing here hard-codes that count — AddParticipant
@@ -120,15 +130,28 @@ func (s *Session) Now() State {
 // Busy reports whether the device is mid-call (D-DI-6 busy-reject).
 func (s *Session) Busy() bool { return s.Now() != Idle && s.Now() != Ringing }
 
-// Ring marks an incoming drop-in. Returns false when busy (device mid-call
-// rejects new incoming calls — D-DI-6): ringing over a call is refused,
-// re-ringing while already ringing is a no-op success.
-func (s *Session) Ring() bool {
+// Ring marks an incoming drop-in WITHOUT a session id (legacy/test shape).
+// Production dials carry the id and go through RingWith; an id-less ring
+// leaves dial as-is, so existing tests and callers keep their semantics —
+// with the one t_469de14a guarantee that a REAL dial (RingWith) is what arms
+// the offer gate's freshness match.
+func (s *Session) Ring() bool { return s.RingWith("") }
+
+// RingWith marks an incoming drop-in from HA's dropin_dial, recording the
+// session id of the dial THIS dot is answering (t_469de14a). Returns false
+// when busy (device mid-call rejects new incoming calls — D-DI-6): ringing
+// over a call is refused, re-ringing while already ringing is a no-op
+// success. An id-carrying ring always (re)arms dial — a RE-RING of the same
+// dial confirms it; an id-less echo leaves any recorded id alone.
+func (s *Session) RingWith(session string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.now {
 	case Idle:
 		s.now, s.rang = Ringing, s.clock()
+		if session != "" || s.dial == "" {
+			s.dial = session
+		}
 		s.emit(Idle, Ringing)
 		return true
 	case Ringing:
@@ -149,30 +172,49 @@ func (s *Session) CanAccept() bool {
 }
 
 // OfferAuthorized reports whether this dot may auto-answer an inbound
-// dot↔dot offer (D-P2P-4/5).
+// dot↔dot offer (D-P2P-4/5) for the session `session`.
 //
 // It is the callee-side counterpart of the phone pairing gate (feature/call
 // phoneGate.check, D-DI-9b): fail-closed, and decided by the session machine
 // rather than by anything the network asserts. Allowed states:
 //
-//   - Ringing — HA's dropin_dial put this dot here, which IS the authorization.
-//     The caller only learns the peer host from the same connect event that
-//     fires the offer, so the offer can legitimately arrive before this dot has
-//     processed its own dropin_connect; the ring must therefore answer.
+//   - Ringing for the session THIS dot was dialed on — HA's dropin_dial put
+//     this dot here, which IS the authorization. The caller only learns the
+//     peer host from the same connect event that fires the offer, so the
+//     offer can legitimately arrive before this dot has processed its own
+//     dropin_connect; the ring must therefore answer. FRESHNESS (16 Oct
+//     live defect, t_469de14a): a re-dial seconds after a hangup REUSES the
+//     session id (ids derive from caller+callee device ids) while the
+//     prior call's leftover offer was still eligible, and the bare
+//     "Ringing ⇒ authorized" rule admitted it for the new ring — the dot
+//     auto-connected with no button press and no HA accept. The gate now
+//     compares the offer's session id against dial (armed by THIS dial's
+//     dropin_dial): the id is the per-dial discriminator because HA now
+//     generates it per dial (runtime.py) — the dot-side match is the
+//     enforcement backstop. An offer carrying NO id is admitted only when
+//     no dial id is recorded (pre-t_469de14a peers / unit-test shapes).
 //   - a live call opened by Accept (dot-native accept) or CallerJoin (HA's
 //     connect) — "InCall-with-connect", the state the D-P2P-5 accept path
 //     leaves behind.
 //
 // Everything else (idle, ended, and any state that never saw an authorized
 // call) refuses.
-func (s *Session) OfferAuthorized() bool {
+func (s *Session) OfferAuthorized(session string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.now {
 	case Ringing:
-		return true
+		if session == "" {
+			// Id-less offer: admitted only when no dial id is standing —
+			// fail closed once a real dial has armed the freshness match.
+			return s.dial == ""
+		}
+		return s.dial == session
 	case InCall, Muted, Joined:
-		return s.authorized
+		if session == "" {
+			return s.authorized
+		}
+		return s.authorized && s.dial == session
 	default:
 		return false
 	}
@@ -206,9 +248,11 @@ func (s *Session) Accept() (State, bool) {
 // t_d767ce0a): the HA runtime invokes dropin_connect on the caller dot once
 // the callee accepted. Unlike Accept (anti-ambush guarded, D-DI-3) this is a
 // trusted local action from the household's HA — allowed straight from Idle
-// and from Ringing (the callee-dot re-ringing case). Returns the state after
-// the attempt.
-func (s *Session) CallerJoin() (State, bool) {
+// and from Ringing (the callee-dot re-ringing case). The session id is
+// recorded into dial (t_469de14a) so an offer answered in-call (the caller
+// can legitimately be re-offered to after an offer retry) matches the gate's
+// freshness discriminator. Returns the state after the attempt.
+func (s *Session) CallerJoin(session string) (State, bool) {
 	s.mu.Lock()
 	switch s.now {
 	case Idle, Ringing:
@@ -221,6 +265,9 @@ func (s *Session) CallerJoin() (State, bool) {
 	s.now = InCall
 	s.rang = time.Time{}
 	s.authorized = true // HA's connect authorized this call (D-P2P-4/5 gate)
+	if session != "" || s.dial == "" {
+		s.dial = session
+	}
 	s.endpoints = append(s.endpoints[:0], "caller", "callee")
 	s.mu.Unlock()
 
@@ -302,6 +349,7 @@ func (s *Session) End(reason string) bool {
 	s.rang = time.Time{}
 	s.authorized = false // no call: the offer gate is closed again
 	s.endpoints = s.endpoints[:0]
+	s.dial = "" // dial epoch consumed: a re-dial re-arms via RingWith
 	stop := s.stopKill
 	s.pendingEnd = reason
 	s.mu.Unlock()

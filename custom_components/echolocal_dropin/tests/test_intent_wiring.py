@@ -110,11 +110,19 @@ class MockServiceRegistry:
         self.machine = machine
         self._handlers: dict = {}
         if machine is not None:
-            self.register("call", lambda d: machine.call(
-                d["session_id"],
-                Endpoint(d["caller_device"], d["caller_room"]),
-                Endpoint(d["callee_device"], d["callee_room"]),
-            ))
+            def _call(d: dict) -> None:
+                # t_469de14a: the intent path no longer mints a session_id —
+                # the machine derives one when absent (mirrors runtime.py's
+                # _fresh_session_id contract).
+                session_id = d.get("session_id") or machine.fresh_session_id(
+                    d["caller_device"], d.get("callee_room", ""),
+                )
+                machine.call(
+                    session_id,
+                    Endpoint(d["caller_device"], d["caller_room"]),
+                    Endpoint(d["callee_device"], d["callee_room"]),
+                )
+            self.register("call", _call)
             self.register("accept", lambda d: machine.accept(d["device"] if "session_id" not in d else d["session_id"], d["device"]))
             self.register("hangup", lambda d: machine.hangup(d.get("session_id", next(iter(machine.sessions))), d.get("device")))
 

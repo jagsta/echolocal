@@ -138,13 +138,14 @@ func TestDotLegOfferSDPIsHostOnly16k(t *testing.T) {
 // an accepted/connected call answers, idle or ended refuse.
 func TestOfferAuthorizedGate(t *testing.T) {
 	s := New(time.Minute)
-	if s.OfferAuthorized() {
+	const callID = "di-lk-1"
+	if s.OfferAuthorized(callID) {
 		t.Fatal("idle session authorized an offer — the gate must fail closed")
 	}
-	if !s.Ring() {
+	if !s.RingWith(callID) {
 		t.Fatal("ring refused")
 	}
-	if !s.OfferAuthorized() {
+	if !s.OfferAuthorized(callID) {
 		t.Fatal("ringing session must answer: HA's dropin_dial is the authorization")
 	}
 	// The offer may race the callee's own accept; both states must answer.
@@ -152,13 +153,13 @@ func TestOfferAuthorizedGate(t *testing.T) {
 	if _, ok := s.Accept(); !ok {
 		t.Fatal("accept refused")
 	}
-	if !s.OfferAuthorized() {
+	if !s.OfferAuthorized(callID) {
 		t.Fatal("in-call session (accept/connect) must answer")
 	}
 	if !s.End("hangup") {
 		t.Fatal("end refused")
 	}
-	if s.OfferAuthorized() {
+	if s.OfferAuthorized(callID) {
 		t.Fatal("ended session authorized an offer — the gate must close on teardown")
 	}
 }
@@ -195,6 +196,93 @@ func TestDotOfferHandlerRejectsMalformed(t *testing.T) {
 	}
 }
 
+// TestRedialSameSessionIdWaitsForAccept pins the 16 Oct live defect (card
+// t_469de14a): a dial → hangup → immediate re-dial REUSES the session id
+// (the old runtime derived it from caller+callee device ids), and the bare
+// "Ringing ⇒ answer any offer" rule auto-connected the re-dial seconds in,
+// with no button press and no HA accept (observed: intercom_ring 16:23:18 →
+// intercom_connect 16:23:19.5 GMT, "dot offer answered", nothing else).
+//
+// The fix re-validates session FRESHNESS on the offer path: the dot's
+// dropin_dial (Session.RingWith) arms the offer gate with the id of the
+// dial this dot is answering, and an offer is admitted ONLY for that id —
+// so the caller must WAIT for the button/HA accept exactly like a first
+// dial. The stale-epoch scenario (a leftover offer arriving between the
+// hangup and the fresh ring) is refused by the same match. The dot-side
+// backstop is pinned here alongside the HA-side per-dial id contract
+// (runtime.py _fresh_session_id) — each layer closes the hole alone, both
+// together are the CHECK the card demands.
+func TestRedialSameSessionIdWaitsForAccept(t *testing.T) {
+	var now time.Time
+	i := testIntercom(func([]int16) {})
+	i.session.clock = func() time.Time { return now }
+	// The OLD id shape: identical on every dial of this pair — precisely the
+	// reused id the defect exploited. The fix's dot-side rule is that the
+	// gate matches against the dial CURRENTLY armed on the machine, so even
+	// a reused id cannot cross a teardown boundary.
+	reusedID := "di-lounge-kitchen"
+
+	// --- Dial 1: the witnessed good call (button accept, full flow). ---
+	if !i.session.RingWith(reusedID) {
+		t.Fatal("dial 1 ring refused")
+	}
+	if !i.session.OfferAuthorized(reusedID) {
+		t.Fatal("dial 1's own offer must be admitted (D-P2P-4/5 race rule)")
+	}
+	now = now.Add(RingFloor)
+	if _, ok := i.session.Accept(); !ok { // button accept
+		t.Fatal("dial 1 accept refused")
+	}
+
+	// --- Hangup: machine torn down — the dial epoch is consumed. ---
+	if !i.session.End("hangup") {
+		t.Fatal("hangup refused")
+	}
+	if i.session.OfferAuthorized(reusedID) {
+		t.Fatal("idle session authorized an offer after hangup")
+	}
+
+	// --- Dial 2: the immediate re-dial, SAME (reused) id. ---
+	now = now.Add(500 * time.Millisecond)
+	if !i.session.RingWith(reusedID) {
+		t.Fatal("re-dial ring refused")
+	}
+	// The callee RINGS and WAITS: the gate admits the offer for the ring's
+	// racing rule, but nothing CONNECTS. There is no auto-accept anywhere in
+	// the machine: the ring floor is re-armed by RingWith, so the earliest
+	// legal connect is one full ring floor after the re-dial — the 1.5s
+	// auto-connect at 16:23:19.5 is impossible on a fresh ring with a 1s
+	// floor plus the accepted connect event only firing on Accept/CallerJoin.
+	if i.activeLeg() != nil {
+		t.Fatal("re-dial auto-created a media leg — the auto-connect defect")
+	}
+	if i.session.CanAccept() {
+		t.Fatal("re-dial connectable before the ring floor (D-DI-3 must re-arm)")
+	}
+	// The connect path can ONLY be Accept (button) or CallerJoin (HA accept)
+	// — both leave Ringing only through those two calls. Pin it: no state
+	// change without an explicit accept.
+	if i.session.Now() != Ringing {
+		t.Fatalf("re-dial state = %s, want ringing (must WAIT for accept)", i.session.Now())
+	}
+
+	// --- STALE left-over offer from the PRIOR epoch (pre-hangup). ---
+	// A leftover offer carrying the reused id arrives while the fresh ring
+	// stands on the SAME id (the pre-fix id scheme). With the runtime fix
+	// (fresh ids per dial) this offers id never re-arms the gate; pin the
+	// dot-side defence: only an id matching the CURRENT dial is admitted,
+	// and a stale-epoch different id is refused outright.
+	if !i.session.OfferAuthorized(reusedID) {
+		t.Fatal("the fresh dial's own offer must be admitted")
+	}
+	if i.session.OfferAuthorized("di-lounge-kitchen-STALE-EPOCH") {
+		t.Fatal("an offer id that does not match the armed dial must be refused")
+	}
+	if i.activeLeg() != nil || i.session.Now() != Ringing {
+		t.Fatal("no offer may auto-connect: media starts only on a real accept")
+	}
+}
+
 // TestDotOfferLoopbackCarriesAudio is the end-to-end proof of D-P2P-4/5/6 in
 // process: a real caller leg (offer) negotiates against the callee's real
 // answer handler, the two PeerConnections connect over host candidates, and
@@ -215,12 +303,17 @@ func TestDotOfferLoopbackCarriesAudio(t *testing.T) {
 		}
 	})
 
-	// Callee state: HA's dropin_dial has rung it (authorization).
-	if !callee.session.Ring() {
+	// Callee state: HA's dropin_dial has rung it (authorization). The dial
+	// carries the session id (t_469de14a) — production dropin_dial always
+	// does — which is what arms the offer gate's freshness match.
+	if !callee.session.RingWith("di-loopback") {
 		t.Fatal("callee ring refused")
 	}
+	if !callee.session.OfferAuthorized("di-loopback") {
+		t.Fatal("callee fresh dial must admit its own offer id")
+	}
 	// Caller state: HA's connect already ran on it.
-	if _, ok := caller.session.CallerJoin(); !ok {
+	if _, ok := caller.session.CallerJoin("di-loopback"); !ok {
 		t.Fatal("caller join refused")
 	}
 
@@ -374,7 +467,7 @@ func TestPumpRoutesMicFramesToDirectLeg(t *testing.T) {
 	i.setTransport(transportP2P)
 	leg := &fakeLeg{}
 	i.setLeg(leg)
-	if _, ok := i.session.CallerJoin(); !ok {
+	if _, ok := i.session.CallerJoin("di-1"); !ok {
 		t.Fatal("caller join refused")
 	}
 	frames := make(chan []int16)

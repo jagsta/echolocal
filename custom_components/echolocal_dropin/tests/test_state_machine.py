@@ -302,3 +302,57 @@ def test_relay_rejects_unknown_and_closed():
         relay.feed("dev-ghost", b"x")  # not an endpoint
     with pytest.raises(RelayError):
         relay.add("dev-a")  # duplicate
+
+
+# ---------------------------------------------------------------------------
+# t_469de14a: per-dial session ids (callee auto-connect on re-dial defect)
+# ---------------------------------------------------------------------------
+
+def test_fresh_session_id_unique_per_dial():
+    """The auto-minted id must differ on consecutive dials of the SAME pair —
+    the dot-side offer gate (intercom/session.go) matches an offer's id
+    against the id the callee's dropin_dial was dialled with, so a reused id
+    cannot distinguish a fresh ring from the just-ended prior call."""
+    machine, clock, _ = make_machine()
+    clock.t = 1000.0
+    id1 = machine.fresh_session_id("dev-caller", "dev-callee")
+    clock.t = 1001.0
+    id2 = machine.fresh_session_id("dev-caller", "dev-callee")
+    assert id1 != id2, "consecutive dials of the same pair must not reuse an id"
+    assert id1.startswith("di-dev-call-dev-call"), "human-readable id for the logs"
+
+    # Explicit ids still win when callers supply one.
+    caller, callee = endpoints()
+    machine.call("my-explicit-id", caller, callee)
+    assert "my-explicit-id" in machine.sessions
+
+
+def test_full_id_cycle_through_machine():
+    """Dial → hangup → immediate re-dial with minted ids: both dials land,
+    the ids differ, and the second ring is a fresh SESSION_RINGING with its
+    own ring_started_at (the callee rings and WAITS — no connect event
+    without an accept)."""
+    machine, clock, rec = make_machine()
+    caller, callee = endpoints("dev-a", "dev-b")
+
+    id1 = machine.fresh_session_id("dev-a", "dev-b")
+    machine.call(id1, caller, callee)
+    machine.accept(id1, "dev-b", at=clock.t + 1.0)
+    assert machine.endpoint_state("dev-b") == STATE_IN_CALL
+    machine.hangup(id1)
+    assert machine.endpoint_state("dev-b") == STATE_IDLE
+
+    clock.t += 0.5  # the 17:23:14 re-dial, seconds after the hangup
+    id2 = machine.fresh_session_id("dev-a", "dev-b")
+    assert id2 != id1
+    machine.call(id2, caller, callee)
+    assert machine.endpoint_state("dev-b") == STATE_RINGING
+    # NO connect event fired for the re-dial — the callee is ringing and
+    # waiting; only an accept (button/HA) produces connect.
+    connect_sessions = [c["session"] for c in rec.kinds("connect")]
+    assert connect_sessions == [id1], f"re-dial must not auto-connect: {connect_sessions}"
+    # The ring floor is re-armed on the fresh ring: too-early accept refused.
+    with pytest.raises(CallError):
+        machine.accept(id2, "dev-b", at=clock.t + 0.5)
+    machine.accept(id2, "dev-b", at=clock.t + 1.5)  # past the floor: legal
+    assert machine.endpoint_state("dev-b") == STATE_IN_CALL
