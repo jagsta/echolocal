@@ -1,7 +1,19 @@
 package led
 
+// Alexa's wake/listen indication is a cyan/blue sweep; the amber chase was the
+// pre-Alexa convention. Chase is palette-driven: white falls back to a plain
+// chase, ListenBlue renders blue dots on the dark ring.
+var alexaBlue = Palette{
+	{R: 0x00, G: 0x30, B: 0xB0},
+	{R: 0x00, G: 0x70, B: 0xE0},
+	{R: 0x40, G: 0xB0, B: 0xFF},
+	{R: 0xC0, G: 0xE8, B: 0xFF},
+}
+
 var ambientEffects = []Effect{
 	{Name: EffectPulse, New: breathe},
+	{Name: EffectBlueChase, Palette: alexaBlue, New: chase},
+	{Name: EffectGreenPulse, Palette: alexaGreen, New: breathe},
 	{Name: EffectHeartbeat, New: heartbeat},
 	{Name: EffectRipple, New: ripple},
 	{Name: EffectStandingWave, New: standing},
@@ -46,6 +58,9 @@ var motionEffects = []Effect{
 var alertEffects = []Effect{
 	{Name: EffectAlert, Palette: alarm, New: alert},
 	{Name: EffectBeacon, Palette: alarm, New: beacon},
+	// Beacon is palette-locked to alarm (red), so the stock Alexa drop-in
+	// green sweep needs its own entry: the same beacon sweep in Alexa's green.
+	{Name: EffectDropIn, Palette: alexaGreen, New: beacon},
 }
 
 var roomEffects = []Effect{

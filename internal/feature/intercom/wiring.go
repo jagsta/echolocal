@@ -19,8 +19,9 @@ package intercom
 //     perpetual turn per call (probe finding; no go-esphome-device changes).
 //   - state exposure: a TextSensor on the microphone sub-device so HA sees
 //     idle | ringing | in-call | muted | joined.
-//   - chimes/LED: ring chime + Beacon, connect chime + Pulse, end chime,
-//     amber Paint while muted (D-DI-6), all through led.Get().Claim.
+//   - chimes/LED: ring chime + the green Drop-in sweep, connect chime +
+//     the green Drop-in Pulse, end chime, amber Paint while muted (D-DI-6),
+//     all through led.Get().Claim.
 
 import (
 	"context"
@@ -36,7 +37,6 @@ import (
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/feature/detect"
-	"github.com/ygelfand/echolocal/internal/feature/light"
 	"github.com/ygelfand/echolocal/internal/feature/voice"
 	"github.com/ygelfand/echolocal/internal/hardware/buttons"
 	"github.com/ygelfand/echolocal/internal/hardware/led"
@@ -460,26 +460,37 @@ func (i *Intercom) resetMute(why string) {
 	// nothing extra is needed here beyond clearing a stale amber.
 }
 
-// show maps state onto the existing LED conventions (D-DI-5): ring pulse →
-// Beacon, in-call solid → Pulse, muted → static amber paint, end → clear.
-//
-// The base colour passed to Play matters: Pulse has no palette of its own and
-// builds Palette{base}, so a zero Color renders a breathing BLACK frame —
-// invisible (the 15 Oct live defect: no LED pulse on either dot during a
-// call). Every other Pulse caller passes light.Get().Base(); do the same.
+// show maps state onto the LED conventions with stock Alexa colours (D-DI-5 +
+// LED card t_05fc05ad): ring → "Drop-in" (Beacon's sweep in Alexa green), and
+// in-call solid → "Drop-in Pulse" (Pulse's breathe in Alexa green), muted →
+// static amber paint (D-DI-6), end → clear. The colour lives in the effect
+// palettes (Beacon is palette-locked to alarm red and Pulse takes the claim's
+// base colour, so the stock colour needed its own palette-driven entries; a
+// bare base colour cannot recolour Beacon and a base-less Pulse is invisible
+// — the 15 Oct live defect, fixed by the palette approach).
+// The user's configured Intercom.Ring/Call effect names still win over the
+// defaults when set; only the fallbacks became the Alexa colour cards.
 func (i *Intercom) show(to State) {
 	if i.led == nil {
 		return
 	}
 	c := config.Get().Intercom
-	base := light.Get().Base()
+	// Stock Alexa drop-in semantics (LED card t_05fc05ad, Jag: "green pulse
+	// during drop in"): ring AND in-call indications are GREEN. The colour is
+	// carried by the palette-locked "Drop-in" / "Drop-in Pulse" catalogue
+	// entries — Beacon is hard-locked to the alarm (red) palette and Pulse
+	// would take the user's ring base, so neither could be recoloured by a
+	// base colour. Muted keeps its amber paint (D-DI-6); Idle still clears.
 	switch to {
 	case Ringing:
-		i.led.Play(effectOr(c.Ring, "Beacon"), base)
+		i.led.Play(effectOr(c.Ring, led.EffectDropIn), led.Color{})
 	case InCall, Joined:
-		i.led.Play(effectOr(c.Call, "Pulse"), base)
+		i.led.Play(effectOr(c.Call, led.EffectGreenPulse), led.Color{})
 	case Muted:
-		i.led.Paint([]led.Color{amber})
+		// A full 12-segment solid: Paint renders the frame verbatim and the
+		// ring demands exactly Segments colours (a single-colour slice was
+		// rejected as "need 12 segments, got 1").
+		i.led.Paint(led.Solid(amber))
 	default:
 		i.led.Clear()
 	}

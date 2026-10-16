@@ -25,12 +25,33 @@ type Store struct {
 	shared schema.SharedWriter[Config]
 }
 
+// migrateIntercomEffects folds the pre-Alexa-colour default effect names
+// (LED card t_05fc05ad) onto the stock Alexa entries. Configs written BEFORE
+// the recolour carry the then-defaults "Beacon"/"Pulse" verbatim; without
+// this every deployed dot keeps the old red ring/in-call shows. The values
+// are moved, not dropped: an explicitly chosen Beacon/Pulse is migrated too,
+// the accepted cost — dots show Alexa colours unless reconfigured afterwards.
+func migrateIntercomEffects(c *Config) error {
+	if c.Intercom.Ring == "Beacon" {
+		c.Intercom.Ring = "Drop-in"
+	}
+	if c.Intercom.Call == "Pulse" {
+		c.Intercom.Call = "Drop-in Pulse"
+	}
+	return nil
+}
+
 func Load(path string) (*Store, error) {
 	s, err := storage.Load(
 		path,
 		Defaults(),
 		cloneConfig,
-		func(data []byte, c *Config) error { return schema.MigrateNetwork(data, &c.Network) },
+		func(data []byte, c *Config) error {
+			if err := schema.MigrateNetwork(data, &c.Network); err != nil {
+				return err
+			}
+			return migrateIntercomEffects(c)
+		},
 	)
 	shared := schema.NewSections(func() *storage.Store[Config] { return s }, sharedOf).Writer()
 	return &Store{Store: s, shared: shared}, err

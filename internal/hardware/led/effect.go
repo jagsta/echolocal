@@ -69,6 +69,20 @@ const (
 	EffectAlert  = "Alert"
 	EffectBeacon = "Beacon"
 
+	// EffectBlueChase is Alexa's stock wake/listen sweep: a blue dot chase
+	// (palette-driven, so the claim's base colour is ignored — see
+	// effect() — which is exactly what we want for a fixed Alexa colour).
+	EffectBlueChase = "Alexa Listen"
+
+	// EffectDropIn is Alexa's stock drop-in ring sweep: Beacon's rotating
+	// beam locked to the green palette (Beacon itself is palette-locked to
+	// alarm red, so the base colour cannot recolour it).
+	EffectDropIn = "Drop-in"
+
+	// EffectGreenPulse is the drop-in in-call breathe locked to Alexa's green
+	// palette (Pulse itself takes the claim's base colour).
+	EffectGreenPulse = "Drop-in Pulse"
+
 	EffectFollower    = "Room Compass"
 	EffectRoomGlow    = "Room Glow"
 	EffectRoomMeter   = "Room Meter"

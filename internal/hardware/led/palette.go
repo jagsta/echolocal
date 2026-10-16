@@ -112,6 +112,17 @@ var alarm = Palette{
 	{R: 0xFF, G: 0xB0, B: 0xA0},
 }
 
+// alexaGreen is the stock Alexa drop-in green (the green sweep the Echo line
+// shows for an incoming drop-in and while one is connected). Palette-driven
+// effects (Drop-in, green Pulse) lock their colour off the claim's base, so
+// the recolour holds whatever the user's ring light is set to.
+var alexaGreen = Palette{
+	{R: 0x00, G: 0x28, B: 0x08},
+	{R: 0x00, G: 0x80, B: 0x20},
+	{R: 0x00, G: 0xE0, B: 0x48},
+	{R: 0x60, G: 0xFF, B: 0x90},
+}
+
 var vu = Palette{
 	{R: 0x00, G: 0xB0, B: 0x18},
 	{R: 0x50, G: 0xC0, B: 0x00},

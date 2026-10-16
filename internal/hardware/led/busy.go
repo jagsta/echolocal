@@ -24,7 +24,11 @@ const busyLimit = time.Minute
 func (w Work) appearance() (string, Color) {
 	switch w {
 	case WorkWakeWord:
-		return EffectChase, Color{R: 0xFF, G: 0x9A, B: 0x00}
+		// Stock Alexa semantics (LED card t_05fc05ad): the listen sweep is
+		// BLUE, not the old amber chase. A palette-driven effect ignores the
+		// base colour, so the fixed Alexa blue is honoured regardless of the
+		// user's ring-light setting.
+		return EffectBlueChase, Color{}
 	case WorkElsewhere:
 		return EffectChase, Color{R: 0x80, G: 0x40, B: 0xC0}
 	case WorkUpdate:

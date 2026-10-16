@@ -52,8 +52,12 @@ const CertHostDomain = "jagbains.org"
 const DefaultCORSOrigin = "https://homeassistant.jagbains.org:8123"
 
 const (
-	DefaultRingEffect  = "Beacon"
-	DefaultCallEffect  = "Pulse"
+	// DefaultRingEffect/DefaultCallEffect are stock Alexa drop-in colours
+	// (LED card t_05fc05ad): the ring is the green Drop-in sweep, the call
+	// the green Drop-in Pulse. The old defaults ("Beacon"/"Pulse") remain
+	// valid effect names a user may still set explicitly.
+	DefaultRingEffect  = "Drop-in"
+	DefaultCallEffect  = "Drop-in Pulse"
 	DefaultMaxMinutes  = 30
 	MinimumRingSeconds = 3 // D-DI-3: anti-ambush ring floor, enforced in the session state machine
 )
