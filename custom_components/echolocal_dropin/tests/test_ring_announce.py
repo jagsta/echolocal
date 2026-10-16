@@ -11,7 +11,9 @@ custom_components/echolocal_dropin/tests/test_ring_announce.py -q
 """
 from __future__ import annotations
 
-import asyncio  # noqa: F401 — drain() comes from test_offline_dial, kept for parity
+import asyncio
+import time
+from types import SimpleNamespace  # noqa: F401
 
 from custom_components.echolocal_dropin.runtime import DropInRuntime
 
@@ -49,15 +51,62 @@ def dial(rt: DropInRuntime, caller: str = LOUNGE, caller_room: str = "little_lou
 
 
 def test_ring_speaks_room_is_dropping_in_on_callee():
-    """Default ON: the callee's satellite gets '<caller room> is dropping in'."""
+    """Default ON: the callee's SPEAKER media_player gets 'lounge is dropping
+    in' (t_79ebd16b: the dot's media_player announce claim coexists with the
+    ring; the assist_satellite is transiently unavailable during ring — live
+    16 Oct 13:34). Message uses the caller dot's announce_name. The cue is
+    now spoken from the announce-then-dial job (speak-before-ring): run the
+    announce job only (the dial recorder would fail its transport and tear
+    the session down — not this test's subject)."""
     rt, hass, _events, tts_calls = make_runtime_with_tts()
     dial(rt)
+    fn, ring_data = announce_jobs(hass)[0]
+    _run_async(fn(ring_data))
     assert len(tts_calls) == 1
     call = tts_calls[0]
-    assert call["entity_id"] == "assist_satellite.kitchen_assist_satellite"
-    assert call["media_player_entity_id"] == call["entity_id"]
-    assert call["message"] == "little lounge is dropping in"
+    assert call["entity_id"] == "media_player.kitchen_kitchen_speaker"
+    # t_79ebd16b: 'lounge' (announce_name), not the raw 'little lounge'.
+    assert "lounge is dropping in" in call["media_content_id"]
     assert rt.machine.endpoint_state(KIT) == "ringing", "announce does not disturb the machine"
+
+
+def test_ring_announce_uses_play_media_on_speaker():
+    """t_79ebd16b: the mapped speaker route is media_player.play_media with
+    media_content_type=announce (tts.speak rejects this player — the ESPHome
+    integration maps its feature flags without MediaPlayerEntityFeature.ANNOUNCE,
+    'missing or not currently available' every call, live 16 Oct 14:24-14:25)."""
+    rt, hass, _events, _tts = make_runtime_with_tts()
+    dial(rt)
+    drain(hass)
+    plays = [c for c in hass.service_calls if c[0] == "media_player" and c[1] == "play_media"]
+    assert len(plays) == 1
+    _domain, _service, args, _blocking = plays[0]
+    assert args["entity_id"] == "media_player.kitchen_kitchen_speaker"
+    assert args["media_content_type"] == "announce"
+    assert "lounge is dropping in" in args["media_content_id"]
+    assert "media-source://tts/" in args["media_content_id"]
+
+
+def test_announce_falls_back_to_satellite_without_speaker_entity():
+    """A dot without a speaker_entity in the map keeps the (old) satellite
+    route and the unartiled message, so the cue degrades rather than dies."""
+    rt, hass, _events, tts_calls = make_runtime_with_tts()
+    # Simulate an unmapped-dot speaker entity: strip the map entry by using a
+    # callee whose facts have no speaker_entity yet (monkeypatch a copy).
+    from custom_components.echolocal_dropin import device_map as dm
+    saved = dict(dm.DROPIN_DEVICE_MAP[KIT])
+    dm.DROPIN_DEVICE_MAP[KIT] = {k: v for k, v in saved.items() if k != "speaker_entity"}
+    try:
+        dial(rt)
+        fn, ring_data = announce_jobs(hass)[0]
+        _run_async(fn(ring_data))
+        assert len(tts_calls) == 1
+        call = tts_calls[0]
+        assert call["entity_id"] == "assist_satellite.kitchen_assist_satellite"
+        # name normalization (announce_name) applies on BOTH paths
+        assert call["message"] == "lounge is dropping in"
+    finally:
+        dm.DROPIN_DEVICE_MAP[KIT] = saved
 
 
 def test_gate_off_no_announce():
@@ -119,8 +168,10 @@ def test_phone_caller_announces_display_name():
         "callee_device": KIT,
         "callee_room": "kitchen",
     })
+    fn, ring_data = announce_jobs(hass)[0]
+    _run_async(fn(ring_data))
     assert len(tts_calls) == 1
-    assert tts_calls[0]["message"] == "jag is dropping in"
+    assert "jag is dropping in" in tts_calls[0]["media_content_id"]
 
 
 def test_no_tts_target_announce_skipped():
@@ -132,3 +183,137 @@ def test_no_tts_target_announce_skipped():
          callee_room="little_lounge")
     assert tts_calls == []
     assert rt.machine.endpoint_state(LOUNGE) == "ringing"
+
+
+# ---------------------------------------------------------------------------
+# t_903017d5: speak-BEFORE-ring + availability gate (R1a/R2)
+# ---------------------------------------------------------------------------
+
+
+def _run_async(coro) -> None:
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def announce_jobs(hass: FakeHass) -> list:
+    """The (fn, ring_data) pairs queued for the announce-then-dial handoff."""
+    return [(fn, rest[0] if rest else {}) for fn, *rest in hass.jobs
+            if "announce_then_dial" in str(fn) and rest]
+
+
+def dial_jobs(hass: FakeHass) -> list:
+    """dropin_dial dispatches recorded via hass.jobs (the sync add_job of
+    the async_dot_action call in _dispatch_ring)."""
+    return [(fn, *rest) for fn, *rest in hass.jobs
+            if "dot_action" in str(fn) or ("dot_action" in str(rest))]
+
+
+def test_speak_before_ring_dial_dispatched_after_announce():
+    """R1a: the ring event no longer dispatches dropin_dial inline — only an
+    announce-then-dial job is queued; running that job speaks the cue BEFORE
+    the dial is queued."""
+    rt, hass, _events, tts_calls = make_runtime_with_tts()
+    dial(rt)
+    # The dial has NOT been queued yet (speak-before-ring), announce is queued.
+    assert len(announce_jobs(hass)) == 1, "announce-then-dial job queued"
+    jobs_before = len(hass.jobs)
+    assert jobs_before == 1, f"only the announce job; jobs={hass.jobs}"
+
+    # Run the announce job: it speaks, THEN queues the dial.
+    fn, ring_data = announce_jobs(hass)[0]
+    _run_async(fn(ring_data))
+    assert len(tts_calls) == 1, "cue spoken"
+    assert any(
+        "dot_action_async" in str(fn2) and "dial" in str(args[0])
+        for fn2, *args in hass.jobs
+    ), f"dropin_dial dispatched after announce; jobs={hass.jobs}"
+    assert rt.machine.endpoint_state(KIT) == "ringing"
+
+
+def test_announce_gate_waits_for_unavailable_satellite_then_dials():
+    """R2: an unavailable satellite blocks the speak only BOUNDED (<=10s);
+    on expiry a WARN is logged and the dial STILL fires — announce must
+    never block or break dialing."""
+    rt, hass, _events, tts_calls = make_runtime_with_tts()
+    rt.ANNOUNCE_AVAILABILITY_WAIT_SECONDS = 0.3  # test-scale bound
+
+    # Simulate a satellite that never becomes available.
+    class _DeadState:
+        state = "unavailable"
+
+    hass.states = SimpleNamespace(get=lambda eid: _DeadState())
+    dial(rt)
+    fn, ring_data = announce_jobs(hass)[0]
+    t0 = time.monotonic()
+    _run_async(fn(ring_data))
+    waited = time.monotonic() - t0
+    assert tts_calls == [], "no cue to an unavailable satellite"
+    assert waited < 3.0, f"bounded wait, not a block (waited {waited:.1f}s)"
+    assert any(
+        "dot_action_async" in str(fn2) and "dial" in str(args[0])
+        for fn2, *args in hass.jobs
+    ), "ring still fires after the gate expires"
+    assert rt.machine.endpoint_state(KIT) == "ringing"
+
+
+def test_announce_gate_waits_while_satellite_transitions_to_available():
+    """R2: a satellite that becomes available DURING the wait gets the cue —
+    the wait polls, it does not bail on the first unavailable sight."""
+    rt, hass, _events, tts_calls = make_runtime_with_tts()
+    rt.ANNOUNCE_AVAILABILITY_POLL_SECONDS = 0.05
+
+    flips = {"n": 0}
+
+    class _State:
+        state = "unavailable"
+
+    def flippy(eid):
+        flips["n"] += 1
+        if flips["n"] >= 3:  # available on the 3rd poll
+            _State.state = "idle"
+        return _State
+
+    hass.states = SimpleNamespace(get=flippy)
+    dial(rt)
+    fn, ring_data = announce_jobs(hass)[0]
+    _run_async(fn(ring_data))
+    assert len(tts_calls) == 1, "cue spoken once the satellite came back"
+    assert any(
+        "dot_action_async" in str(fn2) and "dial" in str(args[0])
+        for fn2, *args in hass.jobs
+    )
+
+
+def test_announce_gate_proceeds_when_satellite_available():
+    """R2 happy path: satellite available -> the cue is spoken, then dial."""
+    rt, hass, _events, tts_calls = make_runtime_with_tts()
+
+    class _State:
+        state = "idle"
+
+    hass.states = SimpleNamespace(get=lambda eid: _State())
+    dial(rt)
+    fn, ring_data = announce_jobs(hass)[0]
+    _run_async(fn(ring_data))
+    assert len(tts_calls) == 1
+    assert any(
+        "dot_action_async" in str(fn2) and "dial" in str(args[0])
+        for fn2, *args in hass.jobs
+    )
+
+
+def test_gate_off_dials_immediately_no_announce():
+    """announce_on_ring=False keeps the OLD inline path: dial queued on the
+    ring event itself, no announce job at all."""
+    rt, hass, _events, tts_calls = make_runtime_with_tts()
+    rt.announce_on_ring = False
+    dial(rt)
+    assert tts_calls == []
+    assert announce_jobs(hass) == []
+    assert any(
+        "dot_action_async" in str(fn) and "dial" in str(args[0])
+        for fn, *args in hass.jobs
+    ), f"inline dropin_dial queued; jobs={hass.jobs}"

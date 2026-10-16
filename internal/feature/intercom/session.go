@@ -50,8 +50,11 @@ const (
 )
 
 // RingFloor is the minimum audible ring before accept may connect (D-DI-3,
-// anti-ambush hard rule). The device refuses an early connect.
-const RingFloor = 3 * time.Second
+// anti-ambush rule). Amended (Jag, 16 Oct, t_903017d5): 1 SECOND — the
+// announce TTS now precedes the ring on the HA side (speak-before-ring), so
+// the floor no longer needs its old 3s headroom. The device refuses an early
+// connect.
+const RingFloor = 1 * time.Second
 
 // Session is the intercom state machine. Pure state and timing only — audio
 // movement lives in wiring.go, entities in session.go, so every rule here is

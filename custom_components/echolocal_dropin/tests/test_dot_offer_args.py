@@ -99,16 +99,19 @@ def make_runtime() -> tuple[DropInRuntime, FakeHass, list]:
 
 
 def drain(hass: FakeHass) -> None:
-    """Run pending add_job callbacks (the fire-and-forget dot transport)."""
-    jobs, hass.jobs = hass.jobs, []
+    """Run pending add_job callbacks (the fire-and-forget dot transport).
+    t_903017d5: the announce-then-dial job appends new jobs as it runs, so
+    loop until the queue drains (the real event loop's schedule semantics)."""
     loop = asyncio.new_event_loop()
     try:
-        for fn, *argv in jobs:
-            coro = fn(*argv)
-            if asyncio.iscoroutine(coro):
-                loop.run_until_complete(coro)
-            else:
-                fn(*argv)
+        while hass.jobs:
+            jobs, hass.jobs = hass.jobs, []
+            for fn, *argv in jobs:
+                coro = fn(*argv)
+                if asyncio.iscoroutine(coro):
+                    loop.run_until_complete(coro)
+                else:
+                    fn(*argv)
     finally:
         loop.close()
 

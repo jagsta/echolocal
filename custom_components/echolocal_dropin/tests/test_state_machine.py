@@ -100,19 +100,19 @@ def test_removed_field_stays_out_of_pairs():
 
 
 # ---------------------------------------------------------------------------
-# D-DI-3: enforced 3-second ring floor
+# D-DI-3: enforced ring floor (1s since the t_903017d5 amendment)
 # ---------------------------------------------------------------------------
 
 def test_accept_before_ring_floor_refused():
     machine, clock, rec = make_machine()
     caller, callee = endpoints()
     machine.call("s1", caller, callee)
-    clock.advance(1.0)
+    clock.advance(0.5)  # under the 1s floor (t_903017d5 amendment)
     with pytest.raises(CallError):
         machine.accept("s1", callee.device_id, at=clock())
     assert rec.kinds("accept_too_early")
     # callee remains ringing; retry after the floor succeeds
-    clock.advance(2.5)  # total 3.5s >= floor
+    clock.advance(0.6)  # total 1.1s >= floor
     machine.accept("s1", callee.device_id, at=clock())
     assert machine.endpoint_state(callee.device_id) == STATE_IN_CALL
 
@@ -121,7 +121,7 @@ def test_accept_at_exact_floor_allowed():
     machine, clock, _ = make_machine()
     caller, callee = endpoints()
     machine.call("s1", caller, callee)
-    clock.advance(3.0)
+    clock.advance(1.0)  # exactly the floor boundary (>= allows)
     machine.accept("s1", callee.device_id, at=clock())
     assert machine.endpoint_state(callee.device_id) == STATE_IN_CALL
     assert machine.endpoint_state(caller.device_id) == STATE_IN_CALL

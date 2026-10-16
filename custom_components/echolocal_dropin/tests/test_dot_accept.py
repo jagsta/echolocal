@@ -107,7 +107,7 @@ def drain(hass: FakeHass) -> None:
 
 
 def ringing_pair(rt: DropInRuntime, session_id: str = "di-btn") -> list:
-    """A lounge -> kitchen session, past the 3s ring floor, still RINGING."""
+    """A lounge -> kitchen session, past the ring floor, still RINGING."""
     clock = [1000.0]
     rt.machine.now = lambda: clock[0]
     rt.machine.call(

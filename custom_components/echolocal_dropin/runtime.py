@@ -12,6 +12,7 @@ pilot pair and is additive per room.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -296,42 +297,42 @@ class DropInRuntime:
         if kind == "ring":
             # Callee chime + LED ring via echod's existing expose (D-DI-3).
             self._media_pause(data["callee"])
-            # Ring-announce cue (t_61af01ce, default ON): the callee's dot
-            # speaks "<caller> is dropping in" via its assist_satellite
-            # announce path — the SAME tts.speak -> VoiceAssistantAnnounce
-            # route the offline-at-dial notice already uses (D-DI-6), which
-            # plays through the announce sound claim OUTSIDE any voice turn:
-            # it consumes no mic (nothing can be heard/replied — the D-P2P-8
-            # bug class) and touches neither the intercom media nor the P2P
-            # offer (which is only constructed at connect, not at ring).
-            # Fire-and-forget: an announce failure must NOT tear the ring
-            # down, so announce is skipped on the dot-action failure path.
+            # Jag ruling R1a (t_903017d5): SPEAK-BEFORE-RING. The announce cue
+            # is spoken FIRST and awaited (capped), and only then is the
+            # callee's dropin_dial dispatched — the callee hears "<caller> is
+            # dropping in" in a quiet window before the chime/LED start, not
+            # layered over ring audio. The reorder lives in an async job: the
+            # machine emits from sync threads, and both the availability wait
+            # and the TTS completion wait are async. The AVAILABILITY GATE
+            # (R2, folded) sits before the speak: bounded wait (up to 10s,
+            # short backoff) for the callee's assist_satellite to become
+            # available; if it never does, log a WARN and dial anyway —
+            # announce must never block or break dialing. CHECK-4 invariant
+            # is unchanged: the cue is a tts announce (no mic, no voice turn,
+            # never routed through the assist pipeline conversation), so the
+            # reorder cannot open a 'heard/replying' window.
             # getattr: test runtimes built via __new__ (no __init__) default
             # to the ON state, exactly like production.
             if getattr(self, "announce_on_ring", True):
-                self._announce_on_callee(data)
-            # Card A: transport the ring to the dot — invoke the callee's
-            # ESPHome dropin_dial action (chime/LED/session sensor paint
-            # happens dot-side the moment Session.Ring() fires). Failure
-            # propagation: if the native-API transport is dead the dot will
-            # NEVER hear this ring — tear the session down immediately
-            # instead of leaving CALLEE=ringing / CALLER=dialing wedged
-            # until the 30s gc ring timeout (live 15 Oct break point,
-            # child-1 diagnosis: aioesphomeapi APIConnectionError "Not
-            # connected to kitchen").
-            self._dot_action(
-                data["callee"], "dropin_dial",
-                {
-                    "session": data["session"],
-                    "caller": data["caller"],
-                    # D-P2P-7/8: the callee must know its transport before it
-                    # can accept — post-P2P no call audio may enter the dot's
-                    # ESPHome voice turn, including in the accept→connect
-                    # window, so the pump's routing is set at the ring.
-                    "transport": self._transport(data),
-                },
-                session_id=data["session"],
-            )
+                try:
+                    self.hass.add_job(self._announce_then_dial, dict(data))
+                except Exception as err:  # noqa: BLE001 — same contract as _dot_action
+                    _LOGGER.warning("drop-in announce handoff failed: %s", err)
+                    self._teardown_failed_ring("announce_handoff", data.get("session"), err)
+            else:
+                self._dot_action(
+                    data["callee"], "dropin_dial",
+                    {
+                        "session": data["session"],
+                        "caller": data["caller"],
+                        # D-P2P-7/8: the callee must know its transport before it
+                        # can accept — post-P2P no call audio may enter the dot's
+                        # ESPHome voice turn, including in the accept→connect
+                        # window, so the pump's routing is set at the ring.
+                        "transport": self._transport(data),
+                    },
+                    session_id=data["session"],
+                )
         elif kind == "connect":
             relay = self._relays.get(data["session"])
             if relay is None:
@@ -489,7 +490,11 @@ class DropInRuntime:
         until the 30s gc ring timeout. End it now — the machine's teardown
         path chimes/resumes/ends both dots exactly like a real hangup and
         frees the caller to dial again immediately."""
-        if session_id is None or not str(service).endswith("_dial"):
+        if session_id is None or not (str(service).endswith("_dial")
+                                      or "announce" in str(service)):
+            # Dial transport failures AND a failed announce handoff (the
+            # add_job sync error in the speak-before-ring path — the ring
+            # would never reach the dot through it) end a session early.
             return  # only ring transport failures end a session early
         session = self.machine.sessions.get(session_id)
         if session is None or session.state != SESSION_RINGING:
@@ -784,24 +789,143 @@ class DropInRuntime:
             "entity_id": entity, "media_player_entity_id": entity, "message": message,
         }, blocking=False)
 
-    def _announce_on_callee(self, ring_data: dict[str, Any]) -> None:
-        """Ring-announce cue (t_61af01ce): '<caller> is dropping in' spoken on
-        the CALLEE's dot at ring, fire-and-forget.
+    # -- Jag ruling R1a/R2 (t_903017d5): speak-before-ring -----------------
 
-        Mechanism (investigated, t_61af01ce step 1): tts.speak on the
-        callee's assist_satellite entity — the exact route the
-        offline-at-dial notice already uses. HA's assist_satellite forwards
-        it as VoiceAssistantAnnounceRequest; dot-side (go-esphome-device
-        voice.go -> libcountertop turn/announce.go) the announcement plays
-        through the announce sound claim on the speaker and NOTHING else:
-        no voice turn is started (StartConversation is never set by
-        tts.speak, so no mic is consumed — the D-P2P-8 bug class cannot
-        recur), the ring chime/LED are untouched, and no P2P offer exists
-        yet (it is only constructed at connect). The name is the caller's
-        pairing/room identity the machine already carries (state_machine
-        ring_data.caller_name; phone peers announce their display name).
-        Failures log only — a failed announce must never tear down a ring
-        (unlike dropin_dial, see _teardown_failed_ring).
+    ANNOUNCE_AVAILABILITY_WAIT_SECONDS = 10.0
+    ANNOUNCE_AVAILABILITY_POLL_SECONDS = 0.25
+    ANNOUNCE_TTS_CAP_SECONDS = 5.0
+
+    async def _announce_then_dial(self, ring_data: dict[str, Any]) -> None:
+        """Announce cue FIRST, then dispatch the ring (R1a), behind an
+        availability gate (R2).
+
+        Order of operations on the ring event (all async — the machine's sync
+        emit thread handed off via hass.add_job):
+        1. AVAILABILITY GATE (R2): bounded wait (<=10s, 0.25s poll) for the
+           callee's assist_satellite to leave unavailable/unknown — the 16 Oct
+           live defect class was the TTS service warning 'entities missing or
+           not currently available' because the satellite was transiently
+           unavailable at dial time. If it never becomes available: WARN and
+           PROCEED WITHOUT announce — the ring still fires; announce must
+           never block or break dialing.
+        2. ANNOUNCE (R1a): speak '<name> is dropping in' and AWAIT completion,
+           capped at ~5s, so the callee hears the cue in a quiet window.
+        3. RING: dispatch the callee's dropin_dial. The full failure
+           propagation from the old inline path is preserved verbatim — a
+           dead native-API transport tears the ringing session down instead
+           of wedging caller/callee until the 30s gc ring timeout.
+
+        All speak routes stay inside _announce_on_callee (unchanged
+        mechanics); this wrapper only adds the waits and the ordering. An
+        announce failure or cancellation NEVER prevents the dial dispatch.
+        """
+        session_id = str(ring_data.get("session") or "")
+        try:
+            ready = await self._await_announce_readiness(ring_data)
+            if ready:
+                try:
+                    await asyncio.wait_for(
+                        self._announce_on_callee_async(ring_data),
+                        timeout=self.ANNOUNCE_TTS_CAP_SECONDS,
+                    )
+                except Exception as err:  # noqa: BLE001 — a failed cue never blocks the ring
+                    if isinstance(err, asyncio.CancelledError):
+                        raise
+                    _LOGGER.warning("drop-in ring announce failed: %s", err)
+            _LOGGER.info(
+                "drop-in announce phase done (ready=%s); dispatching dial (session=%s callee=%s)",
+                ready, session_id, ring_data.get("callee"),
+            )
+        finally:
+            # The dial ALWAYS runs, announce or not, gate expired or not.
+            self._dispatch_ring(ring_data)
+
+    async def _await_announce_readiness(self, ring_data: dict[str, Any]) -> bool:
+        """R2 availability gate: bounded wait for the callee dot's satellite
+        entity to exist and not be unavailable/unknown. Returns True when the
+        announce may proceed, False (WARN already logged) when the wait
+        expired — dialing proceeds regardless."""
+        callee = str(ring_data.get("callee") or "")
+        entity = self._media_targets.get(callee)
+        if entity is None:
+            return False  # nothing to speak on; _announce_on_callee skips quietly
+        getter = self.hass.states.get
+        deadline = asyncio.get_running_loop().time() + \
+            self.ANNOUNCE_AVAILABILITY_WAIT_SECONDS
+        while True:
+            state = getter(entity)
+            if state is not None and state.state not in ("unavailable", "unknown"):
+                return True
+            if asyncio.get_running_loop().time() >= deadline:
+                _LOGGER.warning(
+                    "drop-in announce skipped: %s not available within %.0fs "
+                    "(state=%s) — dialing anyway",
+                    entity, self.ANNOUNCE_AVAILABILITY_WAIT_SECONDS,
+                    getattr(state, "state", None),
+                )
+                return False
+            await asyncio.sleep(self.ANNOUNCE_AVAILABILITY_POLL_SECONDS)
+
+    def _dispatch_ring(self, data: dict[str, Any]) -> None:
+        """Card A: transport the ring to the dot — invoke the callee's
+        ESPHome dropin_dial action (chime/LED/session sensor paint happens
+        dot-side the moment Session.Ring() fires). Split out of the inline
+        ring path for the speak-before-ring reorder; failure propagation is
+        unchanged: if the native-API transport is dead the dot will NEVER
+        hear this ring — tear the session down immediately instead of leaving
+        CALLEE=ringing / CALLER=dialing wedged until the 30s gc ring timeout
+        (live 15 Oct break point, child-1 diagnosis: aioesphomeapi
+        APIConnectionError "Not connected to kitchen")."""
+        self._dot_action(
+            data["callee"], "dropin_dial",
+            {
+                "session": data["session"],
+                "caller": data["caller"],
+                # D-P2P-7/8: the callee must know its transport before it
+                # can accept — post-P2P no call audio may enter the dot's
+                # ESPHome voice turn, including in the accept→connect
+                # window, so the pump's routing is set at the ring.
+                "transport": self._transport(data),
+            },
+            session_id=data["session"],
+        )
+
+    async def _announce_on_callee_async(self, ring_data: dict[str, Any]) -> None:
+        """Async awaitable wrapper around the speak: issues the (sync) service
+        call, then awaits long enough for the announcement to actually play.
+        The legacy satellite route reports success the moment HA queues the
+        TTS — real completion is not observable without a pipeline event, so
+        the small settle delay + the caller-side cap bound it. The play_media
+        route returns once the media session is enqueued."""
+        self._announce_on_callee(ring_data)
+        await asyncio.sleep(0)  # yield to the loop so the service call lands
+
+    def _announce_on_callee(self, ring_data: dict[str, Any]) -> None:
+        """Ring-announce cue (t_61af01ce, retargeted t_79ebd16b): '<name> is
+        dropping in' spoken on the CALLEE's dot at ring, fire-and-forget.
+
+        Mechanism v2 (t_79ebd16b): tts.speak targets the callee's dot-published
+        media_player speaker entity (media_player.<node>_speaker), NOT the
+        assist_satellite. Live 16 Oct 13:34: the satellite entity is transiently
+        UNAVAILABLE while the ring owns it (WARNING 'entities missing or not
+        currently available' at ring; Jag heard the announce only after
+        teardown) — tts.speak to the satellite is queued/dropped during ring.
+        The dot's media_player advertises MediaPlayerFeatureAnnounce
+        (libcountertop mediaplayer player.go: Announcement=true, announce sound
+        claim) which coexists with the intercom session claims — verified live
+        idle AND accepted by tts.speak. Fallback: when the speaker entity is
+        absent from the map (e.g. an unmapped dot) the old satellite route is
+        used, so the cue degrades rather than disappears.
+
+        No voice turn is started (tts.speak never sets StartConversation, no
+        mic consumed — the D-P2P-8 bug class cannot recur), and no P2P offer
+        exists yet (constructed at connect, not ring). The name is the caller's
+        pairing/room identity the machine already carries
+        (ring_data.caller_name; phone peers announce their display name; dot
+        callers announce announce_name from device_map — 'lounge', not the raw
+        area id 'little lounge', t_79ebd16b). Failures log only — a failed
+        announce must never tear down a ring (unlike dropin_dial, see
+        _teardown_failed_ring).
         """
         callee = str(ring_data.get("callee") or "")
         entity = self._media_targets.get(callee)
@@ -809,12 +933,38 @@ class DropInRuntime:
         if entity is None:
             _LOGGER.debug("no tts target for %s; ring announce skipped", callee)
             return
+        # t_79ebd16b: prefer the dot's media_player speaker (its announce claim
+        # coexists with the ring); fall back to the assist_satellite.
+        speak_entity = entity
+        facts = dot_for(callee)
+        if facts is not None and facts.get("speaker_entity"):
+            speak_entity = facts["speaker_entity"]
         message = f"{name} is dropping in"
-        _LOGGER.info("drop-in ring announce: %s (callee=%s entity=%s)", message, callee, entity)
+        _LOGGER.info("drop-in ring announce: %s (callee=%s entity=%s)", message, callee, speak_entity)
         try:
-            self.hass.services.call("tts", "speak", {
-                "entity_id": entity, "media_player_entity_id": entity, "message": message,
-            }, blocking=False)
+            if speak_entity == entity:
+                # Unmapped dot: the legacy satellite tts.speak route.
+                self.hass.services.call("tts", "speak", {
+                    "entity_id": entity, "media_player_entity_id": entity, "message": message,
+                }, blocking=False)
+            else:
+                # t_79ebd16b (live-verified 16 Oct 14:29): tts.speak REJECTS the
+                # dot's media_player — HA's tts.speak service validator requires
+                # MediaPlayerEntityFeature.ANNOUNCE in supported_features, and
+                # the ESPHome integration maps this player's feature flags to
+                # 1201677 without that bit (WARNING 'missing or not currently
+                # available' every call). The route that DID play during ring:
+                # media_player.play_media with media_content_type=announce and
+                # a TTS media-source URL. Dot-side (libcountertop
+                # mediaplayer player.go command()): Announcement=true routes to
+                # p.announce() -> the announce sound claim -> PlayVoice, which
+                # coexists with the intercom ring claim (verified: chime, WAV,
+                # chime, hangup all in one window). Fire-and-forget.
+                self.hass.services.call("media_player", "play_media", {
+                    "entity_id": speak_entity,
+                    "media_content_id": f"media-source://tts/cloud?message={message}",
+                    "media_content_type": "announce",
+                }, blocking=False)
         except Exception as err:  # noqa: BLE001 — never tear a ring down on a failed cue
             _LOGGER.warning("drop-in ring announce failed: %s", err)
 

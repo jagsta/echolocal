@@ -31,6 +31,12 @@ DROPIN_DEVICE_MAP: dict[str, dict[str, str]] = {
         "area": "little_lounge",
         "host": "lounge-dot.jagbains.org",
         "satellite_entity": "assist_satellite.lounge_assist_satellite",
+        "speaker_entity": "media_player.lounge_speaker",
+        # t_79ebd16b: the ring announce speaks THIS name, not the raw area id.
+        # The callee hears "the lounge is dropping in", not "little lounge" —
+        # the area_id ('little_lounge', from the HA registry) is house wiring,
+        # not a spoken label.
+        "announce_name": "lounge",
         "session_sensor": "sensor.little_lounge_lounge_microphone_intercom_session",
     },
     # kitchen dot (biscuit, 192.168.10.99)
@@ -39,6 +45,8 @@ DROPIN_DEVICE_MAP: dict[str, dict[str, str]] = {
         "area": "kitchen",
         "host": "kitchen-dot.jagbains.org",
         "satellite_entity": "assist_satellite.kitchen_kitchen_assist_satellite",
+        "speaker_entity": "media_player.kitchen_kitchen_speaker",
+        "announce_name": "kitchen",
         "session_sensor": "sensor.kitchen_kitchen_microphone_intercom_session",
     },
 }
@@ -65,6 +73,22 @@ AREA_TO_HOST: dict[str, str] = {
 def dot_for(device_id: str) -> dict[str, str] | None:
     """Facts for an HA device id, or None when it is not a known dot."""
     return DROPIN_DEVICE_MAP.get(str(device_id))
+
+
+def callee_announce_name(caller_room: str) -> str:
+    """The spoken caller label for the ring announce (t_79ebd16b).
+
+    The CALLER's room, normalized for the callee's ears: when a dot in
+    device_map claims this room, its announce_name is the human label
+    ('lounge' for the little_lounge dot — the raw area id 'little lounge' is
+    house wiring, not speech). Falls back to the underscore-stripped room for
+    unmapped rooms (phone peers never reach this — they carry their display
+    name before the call).
+    """
+    for known in DROPIN_DEVICE_MAP.values():
+        if caller_room in (known["area"], known["node"]):
+            return known.get("announce_name") or caller_room.replace("_", " ")
+    return caller_room.replace("_", " ")
 
 
 def node_for(device_id: str) -> str | None:

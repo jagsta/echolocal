@@ -19,7 +19,11 @@ custom_components/echolocal_dropin/tests -q
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
+
+# t_903017d5: a state object whose .state reads as an AVAILABLE entity.
+_SatStateT = type("_SatState", (), {"state": "idle"})
 
 from custom_components.echolocal_dropin.device_map import dot_for
 from custom_components.echolocal_dropin.runtime import DropInRuntime
@@ -37,7 +41,9 @@ KIT = "acf8f22077b452856f9ef46024f95d57"
 
 class FakeHass:
     def __init__(self) -> None:
-        self.states = type("S", (), {"get": staticmethod(lambda eid: None)})()
+        # t_903017d5: every entity looks AVAILABLE so the announce gate
+        # passes instantly; tests override .states to simulate unavailability.
+        self.states = SimpleNamespace(get=lambda entity_id: _SatStateT())
         self.jobs: list[tuple] = []
         self.service_calls: list[tuple] = []
         self.services = self
@@ -78,15 +84,19 @@ def make_runtime() -> tuple[DropInRuntime, FakeHass, list]:
 
 
 def drain(hass: FakeHass) -> None:
-    jobs, hass.jobs = hass.jobs, []
+    # t_903017d5: the announce-then-dial job appends NEW jobs as it runs
+    # (the dial handoff via _dot_action); loop so a drain runs the whole
+    # cascade to completion, exactly as the real loop would schedule them.
     loop = asyncio.new_event_loop()
     try:
-        for fn, *argv in jobs:
-            coro = fn(*argv)
-            if asyncio.iscoroutine(coro):
-                loop.run_until_complete(coro)
-            else:
-                fn(*argv)
+        while hass.jobs:
+            jobs, hass.jobs = hass.jobs, []
+            for fn, *argv in jobs:
+                coro = fn(*argv)
+                if asyncio.iscoroutine(coro):
+                    loop.run_until_complete(coro)
+                else:
+                    fn(*argv)
     finally:
         loop.close()
 

@@ -6,17 +6,19 @@ from __future__ import annotations
 
 DOMAIN = "echolocal_dropin"
 
-# D-DI-3: 3-second minimum audible ring on the callee before "answer" may
-# connect. This floor lives HERE (HA session state machine), not only
+# D-DI-3: minimum audible ring on the callee before "answer" may connect.
+# Amended (Jag, 16 Oct, t_903017d5): 1 SECOND — the announce TTS now precedes
+# the ring (speak-before-ring), so the floor no longer needs its old 3s
+# headroom. This floor lives HERE (HA session state machine), not only
 # device-side.
-RING_FLOOR_SECONDS = 3.0
+RING_FLOOR_SECONDS = 1.0
 
 # D-DI-5: max-duration kill-switch against forgotten open lines.
 DEFAULT_MAX_CALL_SECONDS = 30 * 60
 
 # Card A fix (live failure 14 Oct): an unanswered / undelivered RING ends here
 # so the caller endpoint (STATE_DIALING) cannot wedge the machine busy forever.
-# Long enough for D-DI-3's 3s ring floor + human answer, short enough that a
+# Long enough for D-DI-3's 1s ring floor + human answer, short enough that a
 # failed transport retry is worth within a minute.
 DEFAULT_RING_TIMEOUT_SECONDS = 30.0
 

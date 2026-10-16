@@ -2,7 +2,8 @@
 
 A phone peer ("phone:<name>" source, unregistered, no discovery) is an
 ordinary endpoint: default allow-household permission (D-DI-3), RINGING with
-the enforced 3s floor, display name carried through to the ring event.
+the enforced ring floor (1s since the t_903017d5 amendment), display name
+carried through to the ring event.
 """
 from __future__ import annotations
 
@@ -47,9 +48,10 @@ def test_phone_offer_enters_ringing_with_floor():
     assert session.state == SESSION_RINGING
     assert machine.endpoint_state("dev-callee") == STATE_RINGING
     assert machine.endpoint_state("phone:jag") == STATE_DIALING
-    # 3s floor enforced on the phone-peer ring exactly as D-DI-3.
+    # Ring floor enforced on the phone-peer ring exactly as D-DI-3 (1s
+    # since the t_903017d5 amendment: a sub-floor accept is still refused).
     with pytest.raises(CallError, match="ring floor"):
-        machine.accept("di-phone", "dev-callee", at=clock.t + 1.0)
+        machine.accept("di-phone", "dev-callee", at=clock.t + 0.5)
     clock.advance(3.0)
     machine.accept("di-phone", "dev-callee")  # now past the floor
     ring = rec.kinds("ring")[-1]

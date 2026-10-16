@@ -1,7 +1,7 @@
 """Card 5 — failure-mode hardening tests (D-DI-6) on the HA state machine.
 
 Covers the four carded failure modes plus the D-DI-5/6 invariant regression
-sweep (30m kill-switch + 3s ring floor under every failure path):
+sweep (30m kill-switch + 1s ring floor under every failure path):
 
 1. Drop on HA disconnect: exactly one reconnect attempt (no retry storm),
    end-chime ordering before reconnect_attempt, no silence.
@@ -255,7 +255,7 @@ def test_sweep_kill_switch_fires_on_every_active_path():
 
 
 def test_sweep_ring_floor_holds_after_busy_and_drop_paths():
-    """D-DI-3 invariant: 3s floor holds on the standard path AND on a fresh
+    """D-DI-3 invariant: 1s floor holds on the standard path AND on a fresh
     ring that follows a busy-reject (rejected caller's next call restarts a
     full ring window, floor re-armed)."""
     machine, clock, rec = make_machine()
@@ -267,12 +267,13 @@ def test_sweep_ring_floor_holds_after_busy_and_drop_paths():
     machine.hangup("s1")
 
     # fresh ring for dev-c: floor re-arms from THIS ring's start
+    fresh_ring_at = clock()
     machine.call("s2", Endpoint("dev-c", "office"), Endpoint("dev-b", "living"))
     session = machine.sessions["s2"]
-    assert session.ring_started_at == clock()
+    assert session.ring_started_at == fresh_ring_at
     with pytest.raises(CallError):
-        machine.accept("s2", "dev-b", at=clock() + 1.0)  # under floor
-    machine.accept("s2", "dev-b", at=clock() + 3.0)  # at floor is allowed
+        machine.accept("s2", "dev-b", at=fresh_ring_at + 0.5)  # under the 1s floor
+    machine.accept("s2", "dev-b", at=fresh_ring_at + 1.0)  # at floor is allowed
     assert machine.endpoint_state("dev-b") == STATE_IN_CALL
 
 

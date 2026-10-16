@@ -43,6 +43,7 @@ from .const import (
     is_phone_source,
     phone_display_name,
 )
+from .device_map import callee_announce_name
 
 
 class CallError(Exception):
@@ -240,9 +241,11 @@ class CallStateMachine:
                         "callee": callee.device_id,
                         "caller": caller.device_id,
                         # t_61af01ce: the reown ring announces the same way.
+                        # t_79ebd16b: announce_name (device_map) is the spoken
+                        # label ('lounge'), preferred over the raw area id.
                         "caller_name": phone_display_name(caller.device_id)
                         if is_phone_source(caller.device_id)
-                        else caller.room.replace("_", " "),
+                        else callee_announce_name(caller.room),
                     },
                 )
                 self.emit(
@@ -291,7 +294,9 @@ class CallStateMachine:
         if is_phone_source(caller.device_id):
             ring_data["caller_name"] = phone_display_name(caller.device_id)
         else:
-            ring_data["caller_name"] = caller.room.replace("_", " ")
+            # t_79ebd16b: announce_name (device_map) is the spoken label —
+            # 'lounge' for the lounge dot, not the raw area id 'little lounge'.
+            ring_data["caller_name"] = callee_announce_name(caller.room)
         self.emit("ring", ring_data)
         return session
 
@@ -300,7 +305,8 @@ class CallStateMachine:
         self.emit("busy_chime", {"to_device": caller.device_id})
 
     def accept(self, session_id: str, device_id: str, at: float | None = None) -> None:
-        """'answer' — permitted only after the enforced 3s ring floor (D-DI-3)."""
+        """'answer' — permitted only after the enforced ring floor (D-DI-3, 1s
+        since the t_903017d5 speak-before-ring amendment)."""
         session = self._require(session_id)
         ep = session.endpoint(device_id)
         if ep is None or ep.state != STATE_RINGING:

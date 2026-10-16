@@ -15,14 +15,14 @@ Build on EchoLocal (`echod` Go daemon + go-esphome-device), NOT raw ESPHome sate
 ## D-DI-3 — Permissions & ring contract
 - Permission model: **per-pair map** (source→target), schema from day one; unset pairs **default to allow-household** so rollout behaves trust-wide without config.
 - **Ring-first in v1, all cases**: callee gets chime + LED + "incoming from kitchen"; accepts via voice "answer" or button. `silent_connect` reserved as a per-pair schema field for later; **announce/listen-in-only mode is deferred** (not in v1).
-- **3-second minimum audible ring** on the callee before "answer" can connect (hard rule, anti-ambush).
+- **1-second minimum audible ring** on the callee before "answer" can connect (hard rule, anti-ambush; amended from 3s — Jag, 16 Oct, t_903017d5: the announce TTS now precedes the ring (speak-before-ring), so the floor no longer needs headroom).
 
 ## D-DI-4 — Data path: HA-signalled, HA-relayed (v1), direct P2P reserved (v2)
 v1: both Dots use their existing ESPHome native API connections; a HA-side component relays PCM and owns call state, permissions, ducking orchestration. Consequence accepted: **v1 calls drop if HA restarts** (one auto-reconnect attempt on comeback, callee end-chime, no retry storm). v2: data path swaps to direct echod↔echod LAN streaming behind the SAME session services; protocol extension lands in go-esphome-device at that point.
 
 ## D-DI-5 — Conversational UX contract
 - Caller: assist intent phrases "**drop in on [room]**" / "**intercom [room]**" — wake word + full phrase in one breath (no follow-up-mode invocation; prevents ambient-conversation false calls).
-- Callee accepts: "**answer**" (after the 3s ring floor) or button. Callee ends: "**hang up**" or "**stop**" (stop-as-hangup matches Echo's pattern, accepted ambiguity) or button.
+- Callee accepts: "**answer**" (after the 1s ring floor, per the D-DI-3 amendment) or button. Callee ends: "**hang up**" or "**stop**" (stop-as-hangup matches Echo's pattern, accepted ambiguity) or button.
 - Wake word **suppressed on both ends during active calls**.
 - **Max-duration kill-switch: 30 minutes** (configurable) — garbage-collector against forgotten open lines.
 - Callee media: **pause, not duck**, resume after call (both ends).
@@ -33,7 +33,7 @@ CARDS (explicit work):
 - Call-drop handling on HA disconnect: single reconnect attempt, callee end-chime (never silence).
 - Busy-reject: a device mid-call rejects new incoming calls with a busy chime — no queueing, no call-waiting. Simultaneous mutual dial resolved deterministically (caller with lower device-id wins; loser told "busy").
 - Mic mute via physical button during calls (amber LED), unmute = button again. **Amended (Jag, 15 Oct, t_4790db90): mute lives on the dot's DEDICATED mute button; the Action button ends the call ("tap to end") for both roles; volume buttons adjust volume (pass through to the media player, never consumed in-call).** Implemented in `internal/feature/intercom/wiring.go` `take()`; pinned by `TestTakeButtonContract`.
-- 3-second ring floor (spec decision, enforced in session state machine).
+- 1-second ring floor (spec decision, amended to 1s per D-DI-3 — speak-before-ring removed the headroom need; enforced in session state machine, HA const + dot-side RingFloor).
 ACCEPTED RISKS / trivial paths (no card): offline-at-dial → immediate TTS "kitchen isn't available" on caller, no retry; accidental activation → bounded by one-breath invocation + kill-switch; no PIN gate in v1.
 
 ### D-DI-6a — offline-at-dial contract (t_3c196f3e, settled 15 Oct 2026)

@@ -72,16 +72,19 @@ def make_runtime(dial_behavior) -> tuple[DropInRuntime, FakeHass]:
 
 
 def drain(hass: FakeHass) -> None:
-    """Execute pending add_job callbacks (coroutine fns) to completion."""
-    jobs, hass.jobs = hass.jobs, []
+    """Execute pending add_job callbacks (coroutine fns) to completion.
+    t_903017d5: the announce-then-dial job appends new jobs as it runs, so
+    loop until the queue drains (the real event loop's schedule semantics)."""
     loop = asyncio.new_event_loop()
     try:
-        for fn, *argv in jobs:
-            coro = fn(*argv)
-            if asyncio.iscoroutine(coro):
-                loop.run_until_complete(coro)
-            else:
-                fn(*argv)
+        while hass.jobs:
+            jobs, hass.jobs = hass.jobs, []
+            for fn, *argv in jobs:
+                coro = fn(*argv)
+                if asyncio.iscoroutine(coro):
+                    loop.run_until_complete(coro)
+                else:
+                    fn(*argv)
     finally:
         loop.close()
 
