@@ -47,3 +47,42 @@ Costs/limits to record in the session-layer cards:
 - **v2 P2P (direct echod↔echod LAN) is where the go-esphome-device extension actually lands** — consistent with D-DI-4:21 ("protocol extension lands in go-esphome-device at that point"): new custom message + handler in the `Chain` (handler seam at `go-esphome-device/entities.go:248` / `libcountertop/pkg/homeassistant/nativeapi/server.go:116`), bypassing HA entirely for data while keeping the same session services.
 
 Bottom line for the blocking cards: **D-DI-4's HA-relayed v1 is buildable entirely on existing messages; the seam is one perpetual turn per device + HA-side frame relay. Reserve go-esphome-device protocol work for v2 P2P.**
+
+## 5. AEC / open-duplex measurement seam (read-only audit, 16 Oct, card t_9338c582)
+
+Code audit for the D-DI-2 goal-A gate (open duplex), no behaviour changed.
+
+**Adaptation chain for the intercom lane — confirmed end to end, nothing bypasses the shared bus:**
+
+| link | where |
+| --- | --- |
+| peer audio → lane sink | `intercom/wiring.go:710-712` (`playIntercom`) → `playLane` `:696-698` |
+| lane → player | `speaker.PlayMono(config.StreamIntercom, mono)` `speaker.go:441-443` |
+| 16k mono → 48k stereo | `speaker.codecLayout` `speaker.go:448-457` (sinc upsample + interleave) |
+| lane → mixer bus | `speaker.PlayStream` `:407-416` → `mix.Bus.Push` |
+| per-lane gain/mute | `mix/bus.go:104-127` (`Next`, `level()` `:23-28`, `add` `:129-140`) |
+| output level + tuning | `speaker.fill` `:333-403` (`p.Volume()` `:364-384`; ASP chain `:396-402`) |
+| ALSA write | `mix.Send` `:313` on the stereo 48k S16LE playback PCM |
+| hardware loopback | capture ch7/ch8 = "the DAC feed, bit exact, decimated and aligned with the microphones" `mic/mic.go:289`, `mic/array.go:11` |
+| ref extraction | `cancel.referenceInto` reads ch7 (`mic.go:83-94`, offset `Mics*3`) |
+| sounding gate | `Source.sounding` `:60-76` → `SetPlayback` `:379` (level.AGC freeze) + `refHold` 250 ms |
+| adaptation | `mic.go:384-403`: `SetAdapting(s.Adapting())` → `cancelCenter` (`cancel.cancelCenter` `cancel.go:45-58`) cancels the centre mic vs the ref, suppressor runs as `after` hook |
+
+The receiver's decode path is `p2p.go:320-338` (`dotLeg.receive`) → `l.play` (`:338`, wired to `playIntercom`) → the same lane the loopback taps. Producer format is 320 samples/20 ms while the playback period is 1024 frames (21.33 ms): the lane under-supplies by 1.33 ms per frame, which shows up as periodic partial periods (`fill` splices) — jitter, not an AEC-correctness seam.
+
+Seams that could keep intercom audio out of the ref, and their verdicts:
+- lane gain 0 / muted (`bus.level()`): the audio never reaches the DAC, so it is absent from the ref too — consistent, but reads to the canceller as "no playback" (Idle). Confirmed live: intercom volume 100 on both dots.
+- resample/interleave: happens before the bus, so it is inside the ref.
+- volume/hardware gain: digital (in `fill`) so it is in the ref; any *codec-side* (analog/DRC) nonlinearity is not modelled.
+- hardware/amp mute with the DSP still fed: the ref would carry a phantom echo the mic never hears → ERLE ~0 and misleading. Test with the amp on.
+
+**Config audit.** `newCanceller(aec.Taps)` = 1 channel, 1024 taps @ 16 kHz = 64 ms of echo tail (`mic.go:114`, `aec/canceller.go:11`). `microphone.cancel` (`config/microphone.go:21`, `DefaultCancel=true`) drives `SetCancelling` (`feature/microphone/microphone.go:108-109`, `:138`); the intercom feature never touches it. `storage.Load` unmarshals state.json *over* `Defaults()` (`settings/storage/storage.go:35-47`), so a missing key keeps `cancel: true` — no silent-off path via migration. Verified on both dots (kitchen `192.168.10.99`, lounge `192.168.10.254`): `"cancel": true`, `volume.intercom: 100`, `microphone.muted: false`, LED effects migrated to `Drop-in`/`Drop-in Pulse`, one `ledcontroller` daemon each (PID 206 / 205).
+
+**Measurement seams (staged script: `~/.hermes/cache/scratch/dot_erle_probe.sh` + `erle_wav.py`).**
+- live filter ERLE: `echod ctl audio cancel` → `running/learning/frozen/erle_db` (`feature/control/cancel.go:11-22`, `mic/cancel.go:100-105`).
+- end-to-end listener ERLE: `echod ctl audio record echo <secs> <path>` writes 3 channels — centre mic (pre-cancel), loopback ref, listener out (post-cancel/suppress/lowcut) (`feature/control/record.go:59-107`, `mic.go:430-443`) — analysed offline.
+- after-playback: the `echo cancellation idle` Debug line carries `best_db`/`last_db` plus ref/mic dBFS (`aec/canceller.go:139-154`).
+- caveats: erle_db is **0.0 whenever playback is not active at that instant** (`Idle()` zeroes it) and `running false` at rest is normal (`Active()` is set inside `Process`); ctl output can carry stray daemon log lines; every `echod` CLI invocation re-arms `ECHOLOCAL_CALLUDP` from package init (`feature/call/call.go:29`), so "read-only" ctl calls are not literally read-only. Arm `device log debug` first (it resets on daemon restart).
+- `Source.dropped` has no surface (only the 30 s `listener behind` / `capture overrun` WARNs) — minimal exposure if needed: add `dropped` to the existing `ctl audio cancel` output.
+
+**Duplex expectations to test against.** While the far end plays, `sounding` is true → the canceller adapts and the suppressor's `after` hook runs with `EchoSuppressActive = -40 dB` (`aec/canceller.go:14,17-24`, `preprocess.go:44-45`) — deeper than speex's default -15 dB, i.e. aggressive residual suppression, and the classic double-talk attenuator. The MDF itself has a double-talk/backtrack guard (`mdf.go:284-354`, `:450-452`) that freezes the filter rather than diverging. AGC is frozen whenever `sounding` (`level/level.go:140,213-217,269`), so during a call the near-end mic is unlevelled most of the time — expect a level difference vs the assistant path; that is not a bug. `Freeze`/`Reset` exist for ctl (`ctl audio cancel adapt off|reset`).
