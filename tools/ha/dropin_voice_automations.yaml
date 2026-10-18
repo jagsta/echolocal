@@ -59,7 +59,26 @@
       # AREA_TO_DEVICE lookup keys on. Normalise here — a space-separated room
       # resolves to no dot and wedges the caller in dialing until the ring
       # timeout (live 15 Oct 16:26).
-      callee_area: '{{ trigger.slots.room | replace(" ", "_") | lower }}'
+      # 18 Oct: the slot ALSO needs alias words the custom_sentences list
+      # normalises only on the intent path ("jasmine"/"min" -> mins_room,
+      # "lounge" -> little_lounge — Jag ruling, both names are Jasmine's room).
+      # Spoken-room -> area map, first non-null hit, else the plain normalise.
+      callee_area: >-
+        {{ {
+             'min': 'mins_room',
+             'mins room': 'mins_room',
+             "min's room": 'mins_room',
+             'jasmine': 'mins_room',
+             'jasmins room': 'mins_room',
+             "jasmine's room": 'mins_room',
+             'jasmines room': 'mins_room',
+             'lounge': 'little_lounge',
+             'little lounge': 'little_lounge',
+             'small lounge': 'little_lounge',
+             'the lounge': 'little_lounge',
+             'kitchen': 'kitchen',
+             'the kitchen': 'kitchen',
+           }.get((trigger.slots.room | replace(" ", "_") | lower), (trigger.slots.room | replace(" ", "_") | lower)) }}
   - action: echolocal_dropin.dial
     data:
       caller_device: '{{ caller_device }}'
