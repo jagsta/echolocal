@@ -28,6 +28,8 @@ from homeassistant.helpers.event import (
 from .const import (
     ANNOUNCE_ON_RING,
     DOMAIN,
+    DOT_ANNOUNCE_PATH,
+    DOT_ANNOUNCE_PORT,
     DOT_SESSION_ACCEPTED,
     PERMISSION_ALLOW,
     PERMISSION_ALLOW_HOUSEHOLD,
@@ -35,6 +37,7 @@ from .const import (
     SERVICE_ACCEPT,
     SERVICE_CALL,
     SERVICE_DIAL,
+    SERVICE_ANNOUNCE,
     SERVICE_HANGUP,
     SERVICE_SET_PERMISSION,
     SERVICE_VOICE_ANSWER,
@@ -148,6 +151,12 @@ class DropInRuntime:
 
         self.hass.services.async_register(DOMAIN, SERVICE_VOICE_ANSWER, handle_voice_answer)
         self.hass.services.async_register(DOMAIN, SERVICE_VOICE_HANGUP, handle_voice_hangup)
+
+        # t_47f64032 / D-ANN-2: the announce orchestration service. It is
+        # async end to end (capture-wait poll + per-target nudge), so unlike
+        # the sync-lane handlers above it registers directly — the wrapped()
+        # executor boundary would just re-block the loop around a coroutine.
+        self.hass.services.async_register(DOMAIN, SERVICE_ANNOUNCE, self._announce_service)
 
         # Card A fix (live failure 14 Oct): the machine only reaped ACTIVE
         # sessions at max_duration via nothing at all — gc_tick existed but no
@@ -1001,7 +1010,203 @@ class DropInRuntime:
         # device's existing connection (specs/dropin-probe-findings.md §4.2).
         _LOGGER.debug("relay frame session=%s device=%s bytes=%d", session_id, device_id, len(frame))
 
-    # -- media pause/resume (D-DI-5: pause, not duck; HA-owned) ------------
+    # -- t_47f64032 / D-ANN-2/7/12/13: the announce orchestration service --
+
+    # Capture-wait budget: the dot's window is a hard 15s cut plus turn wait
+    # (10s) and chime lead-in — 30s covers every legitimate shape. Poll pace
+    # 1s. After expiry the capture may still land (e.g. a slow origin): the
+    # targets' own ~10s fetch retry (D-ANN-12, dot-side) then either catches
+    # it or skips with a log — same degrade contract as an offline origin.
+    ANN_CAPTURE_WAIT_SECONDS = 30.0
+    ANN_CAPTURE_POLL_SECONDS = 1.0
+    # D-ANN-12 HA half: a nudged receiver whose fetch still 404s skips on its
+    # own; HA's nudge retry only covers transport hiccups, 3 quick tries.
+    ANN_NUDGE_ATTEMPTS = 3
+    ANN_NUDGE_DELAY_SECONDS = 1.0
+
+    def _resolve_announce_targets(self, data: dict[str, Any]) -> list[str]:
+        """The replay set (D-ANN-2): every registered echolocal dot except
+        the invoking one, or exactly the dot in ``target_room``. Bad shapes
+        are REFUSED loudly (CallError -> HomeAssistantError at the service
+        boundary): the dot-side directory answers a wrong shape with HTTP 200
+        [] silently, so HA is the loud refuser. Targets are the drop-in
+        directory ONLY (device_map) — the spec puts every other media_player
+        out of scope for v1 (D-ANN-1)."""
+        caller_device = str(data.get("caller_device") or "")
+        if dot_for(caller_device) is None:
+            raise CallError(
+                "announce needs the invoking dot's device id in caller_device "
+                f"({caller_device!r} is not a registered echolocal dot)"
+            )
+        target_room = str(data.get("target_room") or "")
+        if not target_room:
+            return [d for d in _all_dots() if d != caller_device]
+        # Same directory discipline as _resolve_callee: alias/area -> dot.
+        try:
+            area = resolve_room(target_room, self._aliases())
+        except IntentError:
+            area = None
+        if area is None and AREA_TO_DEVICE.get(target_room):
+            area = target_room
+        resolved = AREA_TO_DEVICE.get(area or "")
+        if area is None or resolved is None:
+            raise CallError(f"no echolocal dot in {target_room!r} — cannot announce (D-ANN-2)")
+        if resolved == caller_device:
+            raise CallError(
+                f"cannot announce to the invoking dot itself ({area!r} IS the caller, D-ANN-2)"
+            )
+        return [resolved]
+
+    def _announce_service(self, call: ServiceCall) -> None:
+        """echolocal_dropin.announce — resolves the target set per D-ANN-2,
+        refuses bad shapes loudly, then runs the async orchestration as a
+        task: capture-kick on the origin, capture-completion poll (the dot's
+        own ~10s fetch retry is too short to bridge a recording window), then
+        one nudge per target. Never blocks the service call itself."""
+        targets = self._resolve_announce_targets(dict(call.data))
+        self.hass.async_create_task(self._run_announce(dict(call.data), targets))
+
+    async def _run_announce(self, data: dict[str, Any], targets: list[str]) -> None:
+        caller_device = str(data["caller_device"])
+        origin_host = dot_host(caller_device)
+        _LOGGER.info(
+            "echolocal announce: origin=%s targets=%s room=%s",
+            origin_host, [dot_for(t)["node"] for t in targets],
+            data.get("target_room") or "(all)",
+        )
+        # 1. Kick the origin's capture. The action answers instantly with the
+        # lane state; a refusal (in-call, lane busy) shows in the reply — log
+        # and stop, the dot already declined (D-ANN-13 dot-side).
+        kick = await self._esphome_action(caller_device, "dropin_announce", {
+            "room": str(data.get("target_room") or ""),
+        })
+        if not kick.get("announce_ok", True):
+            _LOGGER.warning("announce capture refused by %s: %s", origin_host, kick)
+            return
+        if origin_host is None:
+            _LOGGER.warning("announce: no LAN host for the origin dot; cannot observe capture")
+            return
+        # 2. Wait for capture completion (D-ANN-12 shape): poll the origin's
+        # serve endpoint — a 200 carries X-Announce-Id; a 404 while the dot
+        # logs "capturing" is the recording state, a 404 with no lane is the
+        # capture having bailed. Either way HA stops waiting at the poll cap.
+        cap_id = await self._await_capture(origin_host)
+        if cap_id is None:
+            _LOGGER.warning(
+                "announce: no finished capture from %s within %.0fs; nudging targets anyway "
+                "(their own fetch retry/skip takes it from here, D-ANN-12)",
+                origin_host, self.ANN_CAPTURE_WAIT_SECONDS,
+            )
+        # 3. Nudge every target (D-ANN-2/12/13). async_call EVERYWHERE
+        # (t_650b2f99): sync service calls reintroduce the event-loop freeze
+        # that fail-fast tests pin. The play target is the RECEIVER dot's
+        # media_player speaker (t_79ebd16b: the assist_satellite is
+        # transiently unavailable during ring/in-call) — but the ESPhome
+        # action is the vehicle; the receiver's dot-side guard does the rest.
+        for device_id in targets:
+            await self._nudge_target(device_id, origin_host)
+
+    async def _esphome_action(self, device_id: str, action: str,
+                              args: dict[str, str]) -> dict[str, Any]:
+        """Invoke one dot's ESPHome action with the ASYNC service API
+        (t_650b2f99). Returns the action's answer dict, or an error-shaped
+        dict on transport failure — the caller logs the refusal and retries
+        or stops; the dot-side guard is authoritative."""
+        facts = dot_for(device_id)
+        if facts is None:
+            return {"announce_ok": False, "error": "not a registered dot"}
+        service = f"{facts['node']}_{action}"
+        try:
+            # blocking=True: the answer (lane state) IS the refusal signal.
+            res = await self.hass.services.async_call(
+                "esphome", service, args, blocking=True,
+            )
+            if isinstance(res, dict):
+                res.setdefault("announce_ok", True)
+                return res
+            return {"announce_ok": True}
+        except Exception as err:  # noqa: BLE001 — logged, never unwinds the loop
+            _LOGGER.warning("esphome.%s to %s failed: %s", service, facts["node"], err)
+            return {"announce_ok": False, "error": str(err)}
+
+    async def _await_capture(self, origin_host: str | None) -> str | None:
+        """Poll the origin's GET /announce/capture until it answers 200
+        (capture done; the X-Announce-Id is returned for logging) or the
+        budget expires (None). Transport errors and 404 (recording/bailed)
+        are retried on the poll pace; a 410 (expired) ends the wait early —
+        the capture will never come back."""
+        if not origin_host:
+            return None
+        getter = self._announce_probe_getter()
+        if getter is None:
+            _LOGGER.warning("announce: no HTTP session available; capture poll skipped")
+            return None
+        url = f"https://{origin_host}:{DOT_ANNOUNCE_PORT}{DOT_ANNOUNCE_PATH}"
+        deadline = asyncio.get_running_loop().time() + self.ANN_CAPTURE_WAIT_SECONDS
+        while asyncio.get_running_loop().time() < deadline:
+            status, cap_id = await getter(url)
+            if status == 200:
+                return cap_id
+            if status == 410:  # gone: the window closed with no nudge
+                _LOGGER.warning("announce: capture from %s already expired (410)", origin_host)
+                return None
+            # 404 while recording, or anything transient: keep polling.
+            await asyncio.sleep(self.ANN_CAPTURE_POLL_SECONDS)
+        return None
+
+    def _announce_probe_getter(self):
+        """The (url -> (status, x-announce-id)) probe used by _await_capture.
+        Production: the shared aiohttp session with TLS verify OFF (the dots
+        serve the D-CERT staged bundle, same posture as the dot-to-dot fetch,
+        p2p_offer.go peerDotClient). Import is lazy + guarded: the full
+        homeassistant.helpers.aiohttp_client import pulls zeroconf/ifaddr,
+        which the unit-test venv does not carry — tests inject their own
+        getter via _announce_probe instead."""
+        probe = getattr(self, "_announce_probe", None)
+        if probe is not None:
+            return probe  # type: ignore[return-value]
+        try:
+            from homeassistant.helpers.aiohttp_client import (
+                async_get_clientsession,
+            )
+
+            session = async_get_clientsession(self.hass, verify_ssl=False)
+
+            async def probe(url: str) -> tuple[int, str | None]:
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            return 200, resp.headers.get("X-Announce-Id")
+                        return resp.status, None
+                except Exception as err:  # noqa: BLE001 — origin may be mid-restart
+                    _LOGGER.debug("announce capture poll: %s", err)
+                    return 0, None
+
+            self._announce_probe = probe
+            return probe
+        except Exception as err:  # noqa: BLE001 — test envs may lack the helper chain
+            _LOGGER.debug("announce probe unavailable: %s", err)
+            return None
+
+    async def _nudge_target(self, device_id: str, origin_host: str) -> None:
+        """Nudge ONE receiver (D-ANN-12/13). The receiver's own lane guard
+        skips in-call / delays ringing dot-side; HA's job is the offline
+        retry (quick, 3 tries) then an honest logged skip."""
+        facts = dot_for(device_id)
+        node = facts["node"]
+        for attempt in range(self.ANN_NUDGE_ATTEMPTS):
+            res = await self._esphome_action(device_id, "dropin_play", {"origin": origin_host})
+            if not res.get("announce_ok", True):
+                _LOGGER.info("announce: nudge %s rejected (%s), attempt %d/%d",
+                             node, res, attempt + 1, self.ANN_NUDGE_ATTEMPTS)
+                await asyncio.sleep(self.ANN_NUDGE_DELAY_SECONDS)
+                continue
+            state = res.get("announce")
+            _LOGGER.info("announce: nudge %s (attempt %d) accepted: %s", node, attempt + 1, state)
+            return
+        _LOGGER.warning("announce: target %s skipped after %d nudges (offline/busy, D-ANN-12)",
+                        node, self.ANN_NUDGE_ATTEMPTS)
+
 
     def register_media(self, device_id: str, entity_id: str) -> None:
         self._media_targets[device_id] = entity_id

@@ -65,6 +65,18 @@ SERVICE_SET_PERMISSION = "set_permission"
 SERVICE_VOICE_ANSWER = "voice_answer"
 SERVICE_VOICE_HANGUP = "voice_hangup"
 
+# D-ANN card 2 (t_47f64032): the announce orchestration service. HA resolves
+# targets per D-ANN-2, kicks the origin's capture, waits for capture-complete
+# and nudges each receiver's dropin_play.
+SERVICE_ANNOUNCE = "announce"
+
+# D-ANN-7: the origin-dot capture fetch route, mirrored dot-side
+# (internal/feature/intercom/announce.go announcePath). HA probes it (status
+# + X-Announce-Id) to observe capture completion; the dots fetch it on
+# dropin_play. Port = the dot's TLS listener (web.TLSPort 443, D-P2P-4).
+DOT_ANNOUNCE_PATH = "/announce/capture"
+DOT_ANNOUNCE_PORT = 443
+
 # Ring-announce cue (t_61af01ce): the callee's dot speaks "<caller> is
 # dropping in" (assist_satellite announce path) as/after it rings. Default ON;
 # the entry option is a one-way gate, no second value to configure.

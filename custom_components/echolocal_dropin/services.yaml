@@ -20,6 +20,25 @@ call:
       required: false
       selector:
         text:
+announce:
+  # t_47f64032 / D-ANN-2: Alexa-semantics announcement. The INVOKING dot is
+  # the origin (it records + serves the capture); bare announce replays to
+  # ALL OTHER registered echolocal dots, "announce to <room>" to that one
+  # dot. Targets are the drop-in directory ONLY (device_map) — no other
+  # media_player targets, ever.
+  fields:
+    caller_device:
+      required: true
+      selector:
+        text:
+    caller_room:
+      required: false
+      selector:
+        text:
+    target_room:
+      required: false
+      selector:
+        text:
 dial:
   # t_3c196f3e / D-DI-6 offline-at-dial: resolves the callee up front
   # (area_aliases.json -> dot) and refuses an unknown or dotless room with a

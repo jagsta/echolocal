@@ -104,3 +104,39 @@
     data:
       device: '{{ trigger.device_id | default("", true) }}'
   - set_conversation_response: Call ended.
+
+# ─── D-ANN-2 (t_47f64032): announce sentence triggers ───────────────────────
+# One automation per sentence set (the mutual-exclusion gotcha above applies
+# equally here: bare "announce" and "announce to {room}" must live in ONE
+# automation — two sibling command lists both matching "announce" would
+# deadlock one of them). trigger.device_id IS the invoking dot; the runtime
+# refuses a non-dot id loudly (D-ANN-2). The slot is underscore-normalised
+# before it reaches echolocal_dropin.announce (the same live-15-Oct hazard
+# the dial automation guards: "little lounge" never resolves dot-side).
+# LIVE-STT verification of the heard phrasing ("announce" transcribes
+# unpredictably) is card 3's acceptance (D-ANN-5, heard slot= logcat).
+- id: echolocal_dropin_announce
+  alias: EchoLocal drop-in — announce (voice)
+  mode: single
+  max_exceeded: silent
+  trigger:
+  - platform: conversation
+    id: announce
+    command:
+    - announce
+    - "[please] announce"
+    - announce to {room}
+    - "[please] announce to [the] {room}"
+    - announce [to] everyone
+  action:
+  - variables:
+      caller_device: '{{ trigger.device_id | default("", true) }}'
+      target_room: >-
+        {{ trigger.slots.room | default('', true) | replace(' ', '_') | lower }}
+  - action: echolocal_dropin.announce
+    data:
+      caller_device: '{{ caller_device }}'
+      target_room: '{{ target_room }}'
+  - set_conversation_response: >-
+      {{ 'Announcing to ' ~ (target_room | replace('_',' ')) if target_room
+      else 'Announcing to every dot.' }}

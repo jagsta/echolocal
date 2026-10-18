@@ -35,6 +35,9 @@ def test_expected_verbs_present() -> None:
         "echolocal_dropin_dial",
         "echolocal_dropin_answer",
         "echolocal_dropin_hangup",
+        # t_47f64032 / D-ANN-2: announce rides the same one-automation-per-
+        # sentence-set channel (bare + "announce to {room}" in ONE block).
+        "echolocal_dropin_announce",
     }
 
 
@@ -65,6 +68,8 @@ def test_verbs_map_to_the_voice_services() -> None:
         "echolocal_dropin_dial": "echolocal_dropin.dial",
         "echolocal_dropin_answer": "echolocal_dropin.voice_answer",
         "echolocal_dropin_hangup": "echolocal_dropin.voice_hangup",
+        # t_47f64032 / D-ANN-2: announce maps to the announce orchestration service.
+        "echolocal_dropin_announce": "echolocal_dropin.announce",
     }
     for auto_id, service in expected.items():
         calls = [step["action"] for step in autos[auto_id]["action"] if "action" in step]

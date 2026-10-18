@@ -75,3 +75,25 @@ intents:
       dropin_state:
         - ringing
         - in_call
+
+  # ─── D-ANN-2/4/5 (card 2, t_47f64032): announce sentence intents ─────────
+  # Same discipline as the intents above: satellite-trigger channel only
+  # (requires_trigger), no follow-up mode. ONE intent with BOTH addressing
+  # modes (bare "announce" = every other echolocal dot; "announce to {room}"
+  # = that one dot, D-ANN-2). The LIVE route is the sentence-trigger
+  # automation (tools/ha/dropin_voice_automations.yaml
+  # echolocal_dropin_announce -> echolocal_dropin.announce), which consumes
+  # these phrases before intent matching (card B finding, unchanged); this
+  # block documents/pins the vocabulary. STT phrasing ("announce"
+  # transcribes unpredictably, D-ANN-5) is live-verified in the E2E card
+  # from heard slot= logcat — never by hand-typed /api/conversation/process.
+  DropInAnnounce:
+    data:
+      - sentences:
+          - "announce"
+          - "[please] announce"
+          - "announce to {room}"
+          - "[please] announce to [the] {room}"
+          - "announce [to] everyone"
+    slot: "room"
+    requires_trigger: true  # satellite trigger channel only, no follow-up mode

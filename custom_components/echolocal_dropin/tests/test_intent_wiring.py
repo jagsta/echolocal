@@ -41,7 +41,7 @@ INTENTS_YAML = COMPONENT / "intents" / "en.yaml"
 
 def test_intents_yaml_parses_and_has_expected_intents():
     doc = yaml.safe_load(INTENTS_YAML.read_text())
-    assert set(doc["intents"]) == {"DropInCall", "DropInAnswer", "DropInHangup"}
+    assert set(doc["intents"]) == {"DropInCall", "DropInAnswer", "DropInHangup", "DropInAnnounce"}
     assert doc["language"] == "en"
 
 
