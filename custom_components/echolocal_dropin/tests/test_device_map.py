@@ -22,6 +22,7 @@ from custom_components.echolocal_dropin.device_map import (
 
 LOUNGE = "17b8d542d93b7f00a01a79c7e9edcf60"
 KITCHEN = "acf8f22077b452856f9ef46024f95d57"
+JASMINE = "509f9b8f487aebdf3971fb88cafc3bf7"
 
 
 class FakeState:
@@ -38,9 +39,14 @@ class FakeStates:
 
 
 def test_map_pins_both_live_dots():
-    assert set(DROPIN_DEVICE_MAP) == {LOUNGE, KITCHEN}
+    # Three live dots as of 18 Oct 2026: lounge, kitchen, jasmine (dot #3,
+    # G090LF1180220LGX, area mins_room, jasmine-dot.jagbains.org).
+    assert set(DROPIN_DEVICE_MAP) == {LOUNGE, KITCHEN, JASMINE}
     assert DROPIN_DEVICE_MAP[KITCHEN]["node"] == "kitchen"
     assert DROPIN_DEVICE_MAP[LOUNGE]["node"] == "lounge"
+    assert DROPIN_DEVICE_MAP[JASMINE]["node"] == "jasmine"
+    assert DROPIN_DEVICE_MAP[JASMINE]["area"] == "mins_room"
+    assert DROPIN_DEVICE_MAP[JASMINE]["host"] == "jasmine-dot.jagbains.org"
 
 
 def test_area_resolution_and_lookup():

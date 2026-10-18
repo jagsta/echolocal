@@ -25,6 +25,7 @@ from custom_components.echolocal_dropin.const import (
 from custom_components.echolocal_dropin.runtime import DropInRuntime
 from custom_components.echolocal_dropin.state_machine import CallError
 
+from .test_device_map import JASMINE as JAS
 from .test_offline_dial import KIT, LOUNGE, FakeHass, make_runtime
 
 
@@ -54,8 +55,10 @@ def make_announce_runtime(services: dict[tuple, Any] | None = None):
 
 def test_bare_announce_targets_all_others():
     rt, _hass, _calls = make_announce_runtime()
-    assert rt._resolve_announce_targets({"caller_device": LOUNGE}) == [KIT]
-    assert rt._resolve_announce_targets({"caller_device": KIT}) == [LOUNGE]
+    three = {LOUNGE, KIT, JAS}
+    assert set(rt._resolve_announce_targets({"caller_device": LOUNGE})) == three - {LOUNGE}
+    assert set(rt._resolve_announce_targets({"caller_device": KIT})) == three - {KIT}
+    assert set(rt._resolve_announce_targets({"caller_device": JAS})) == three - {JAS}
 
 
 def test_targeted_announce_resolves_room():
