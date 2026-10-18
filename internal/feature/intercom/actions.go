@@ -28,7 +28,7 @@ import (
 
 // Actions exposes the dial/end actions to Home Assistant (component.Actions).
 func (i *Intercom) Actions() []*esphome.Action {
-	return []*esphome.Action{
+	list := []*esphome.Action{
 		{
 			Name:    "dropin_dial",
 			Args:    []esphome.Arg{{Name: "session"}, {Name: "caller"}, {Name: "transport"}},
@@ -103,4 +103,7 @@ func (i *Intercom) Actions() []*esphome.Action {
 			},
 		},
 	}
+	// D-ANN (announce_wiring.go): the capture/playback actions are appended
+	// after the call lane's four — the call contract stays first, unchanged.
+	return i.wireActionsAnnounce(list)
 }

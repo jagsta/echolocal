@@ -93,6 +93,11 @@ type Intercom struct {
 	play func([]int16)
 	post func(ctx context.Context, peer string, m dotOfferMsg) (string, error)
 
+	// ann is the dot-side announce lane (D-ANN, announce.go): capture, serve
+	// and playback. One per dot, sharing this singleton's session machine,
+	// LED claim and chime seam.
+	ann announcer
+
 	streams []<-chan []int16
 }
 
@@ -224,6 +229,11 @@ func (i *Intercom) wire() {
 	// (card 3, HA side) will push decoded PCM here through PlayPeer; keep the
 	// speaker hook ready rather than stealing the callback.
 	i.status.Set(string(Idle))
+
+	// D-ANN: the announce lane rides this component's seams (one dot, one
+	// announce lane). Composition, not replacement: the call lane's own
+	// wake-suppression clauses above stay as they are.
+	i.wireAnnounce()
 }
 
 // take implements the in-call button contract (D-DI-3 accept; 15 Oct ruling:

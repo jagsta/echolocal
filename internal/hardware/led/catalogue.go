@@ -14,6 +14,9 @@ var ambientEffects = []Effect{
 	{Name: EffectPulse, New: breathe},
 	{Name: EffectBlueChase, Palette: alexaBlue, New: chase},
 	{Name: EffectGreenPulse, Palette: alexaGreen, New: breathe},
+	// D-ANN-11: announce playback breathe, palette-locked to Alexa's purple
+	// (same shape as the green lane — see alexaPurple in palette.go).
+	{Name: EffectAnnounce, Palette: alexaPurple, New: breathe},
 	{Name: EffectHeartbeat, New: heartbeat},
 	{Name: EffectRipple, New: ripple},
 	{Name: EffectStandingWave, New: standing},

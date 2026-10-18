@@ -123,6 +123,16 @@ var alexaGreen = Palette{
 	{R: 0x60, G: 0xFF, B: 0x90},
 }
 
+// alexaPurple is the stock Alexa announce purple (D-ANN-11): the violet
+// breathe Amazon's line shows while an announcement plays. Palette-driven
+// like alexaGreen, so the recolour holds whatever the claim's base is.
+var alexaPurple = Palette{
+	{R: 0x18, G: 0x00, B: 0x30},
+	{R: 0x50, G: 0x00, B: 0x90},
+	{R: 0x90, G: 0x30, B: 0xE0},
+	{R: 0xC0, G: 0x90, B: 0xFF},
+}
+
 var vu = Palette{
 	{R: 0x00, G: 0xB0, B: 0x18},
 	{R: 0x50, G: 0xC0, B: 0x00},

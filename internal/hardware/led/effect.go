@@ -83,6 +83,11 @@ const (
 	// palette (Pulse itself takes the claim's base colour).
 	EffectGreenPulse = "Drop-in Pulse"
 
+	// EffectAnnounce is the ANNOUNCE playback indication (D-ANN-11): the same
+	// breathe locked to Alexa's purple palette — visually the announcement's
+	// own colour, deliberately distinct from the call lane's green.
+	EffectAnnounce = "Announce"
+
 	EffectFollower    = "Room Compass"
 	EffectRoomGlow    = "Room Glow"
 	EffectRoomMeter   = "Room Meter"
