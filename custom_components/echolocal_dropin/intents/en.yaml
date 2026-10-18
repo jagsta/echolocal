@@ -93,7 +93,16 @@ intents:
           - "announce"
           - "[please] announce"
           - "announce to {room}"
+          - "announce to [the] {room}"
           - "[please] announce to [the] {room}"
           - "announce [to] everyone"
+          - "[please] announce [to] everyone"
+          # D-ANN-5 live-STT variance (18 Oct 2026): past tense + the "make an
+          # announcement" idiom, both heard live on the lounge dot.
+          - "(announce|announced) to {room}"
+          - "(announce|announced) to [the] {room}"
+          - "[please] (announce|announced) to [the] {room}"
+          - "(make|made|give|gave|do) an announcement"
+          - "(make|made|give|gave|do) an announcement to [the] {room}"
     slot: "room"
     requires_trigger: true  # satellite trigger channel only, no follow-up mode

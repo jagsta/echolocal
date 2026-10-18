@@ -144,9 +144,24 @@
     command:
     - announce
     - "[please] announce"
-    - announce to {room}
+    - "announce to {room}"
+    - "announce to [the] {room}"
     - "[please] announce to [the] {room}"
-    - announce [to] everyone
+    - "announce [to] everyone"
+    - "[please] announce [to] everyone"
+    # ─── D-ANN-5 live-STT variance (18 Oct 2026, Jag at the dots) ───────────
+    # Whisper-class STT does NOT return the imperative for this command: the
+    # lounge heard "Announced to the kitchen." for "announce to the kitchen"
+    # and "Make an announcement." for the broadcast form. Both fell through the
+    # sentence-trigger set and were answered by the LLM conversation agent
+    # ("...what would you like added to the calendar, and for when?"). hassil
+    # supports (a|b) alternation in conversation-trigger commands, so the past
+    # tense and the "make an announcement" idiom are first-class now.
+    - "(announce|announced) to {room}"
+    - "(announce|announced) to [the] {room}"
+    - "[please] (announce|announced) to [the] {room}"
+    - "(make|made|give|gave|do) an announcement"
+    - "(make|made|give|gave|do) an announcement to [the] {room}"
   action:
   - variables:
       caller_device: '{{ trigger.device_id | default("", true) }}'
