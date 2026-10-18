@@ -15,8 +15,8 @@ func cancelling() []*cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s := mic.Get()
-			fmt.Fprintf(cmd.OutOrStdout(), "running  %t\nlearning %t\nfrozen   %t\nerle_db  %.1f\n",
-				s.Cancelling(), s.Adapting(), s.Frozen(), s.ERLE())
+			fmt.Fprintf(cmd.OutOrStdout(), "running  %t\nlearning %t\nfrozen   %t\nerle_db  %.1f\ndropped  %d\n",
+				s.Cancelling(), s.Adapting(), s.Frozen(), s.ERLE(), s.Dropped())
 			return nil
 		},
 	}
