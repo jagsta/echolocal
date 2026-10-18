@@ -12,6 +12,29 @@ Build on EchoLocal (`echod` Go daemon + go-esphome-device), NOT raw ESPHome sate
 - **v2 (stated goal): open duplex** gated on verifying whether the Gen 2's hardware AEC path is reachable through echod's audio stack.
 - Ring/answer/mute/end machinery is identical for both phases; duplex mode is a switch behind the session layer.
 
+### D-DI-2a — witnessed open-duplex gate result (18 Oct 2026, t_b8ae0a2f): **GO**
+Witnessed run lounge→kitchen, both dots on 34f8168 (md5 686a43e6), cancellers ON then OFF,
+3-channel takes (center mic / DAC reference / listener out) captured on the kitchen dot.
+
+- Echo return loss (ref→out): **29.7 dB** cancel ON vs **2.5 dB** cancel OFF — ~27 dB bought by
+  the canceller. MDF self-reported ERLE 20.7–21.2 dB (running/learning true). Echo-path lag
+  **114 samples = 7.1 ms**, well inside the 1024-tap / 64 ms window, so tail coverage is not the
+  binding constraint.
+- Double-talk, Jag's ear: cancel ON — *"minor echo, no chop"*; cancel OFF — *"severe echo,
+  causing feedback looping"* (control run valid, as required).
+- Instrumented caveat: in frames where both ends are active the near-end deliverable sits
+  14.6 dB below the mic (out = mic − 14.6) with cancel ON, vs 14.1 dB *above* it with cancel OFF
+  — ~29 dB of active echo suppression is still engaging (`aec.EchoSuppressActive = -40`,
+  libcountertop canceller.go:14). It was **not** audible as chop in this run.
+
+Decision: v2 open duplex **rides the existing canceller**; duplex mode remains a switch behind
+the session layer (machinery identical). Tuning scope to weigh while flipping it: EchoSuppressActive
+−40 vs the library default −15 (echolocal's `mic.newSuppressor` calls `aec.NewSuppressor`, which
+hardcodes −40 — tuning needs a direct `aec.Preprocessor` construction or an upstream change);
+1024 taps against a measured 7.1 ms echo path; AGC freeze while sounding. `Source.Dropped()` still
+has no CLI caller — expose it in `ctl audio cancel` before judging armv7 headroom under sustained
+duplex.
+
 ## D-DI-3 — Permissions & ring contract
 - Permission model: **per-pair map** (source→target), schema from day one; unset pairs **default to allow-household** so rollout behaves trust-wide without config.
 - **Ring-first in v1, all cases**: callee gets chime + LED + "incoming from kitchen"; accepts via voice "answer" or button. `silent_connect` reserved as a per-pair schema field for later; **announce/listen-in-only mode is deferred** (not in v1).
