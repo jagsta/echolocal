@@ -35,6 +35,61 @@ hardcodes −40 — tuning needs a direct `aec.Preprocessor` construction or an 
 has no CLI caller — expose it in `ctl audio cancel` before judging armv7 headroom under sustained
 duplex.
 
+### D-DI-2b — tuning-scope measurements (18 Oct 2026, t_4abd9621)
+All numbers from offline replays of the witnessed take (`take-phase1.wav`, cancel ON) through the
+real pipeline (`internal/hardware/mic` TestReplayPipeline / TestReplaySuppressSweep /
+TestCancellerCPUSweep on the pinned libcountertop). DT = frames with both ends active (n=34).
+
+**1. EchoSuppressActive (residual-suppressor dip while echo is active).** Sweep on identical
+replay input:
+
+| EchoSuppressActive | ERLE ref→out | DT mic→out | DT out dBFS |
+|---|---|---|---|
+| −15 (library default) | 29.7 dB | +13.6 | −50.0 |
+| −25 | 30.1 | +14.2 | −50.5 |
+| −30 | 30.2 | +14.3 | −50.7 |
+| −40 (shipped, hardcoded) | 30.4 | +14.5 | −50.8 |
+| suppressor off | 16.2 | −1.0 | −35.4 |
+
+The dip is **almost free**: −15 vs −40 buys 0.7 dB of near-end double-talk deliverability on
+measurement. It is a severity floor the suppressor only reaches when the MDF's own residual is
+loud; the linear canceller does the work. Any move from −40 must be judged by ear (musical-noise/
+residual-tail risk rises as the dip loosens — that cannot be measured headless). **Recommendation:
+leave −40; revisit only if a live ear run reports chop in v2.**
+
+**2. Taps (1024 = 64 ms window vs measured 7.1 ms path).** ERLE with denoise, warm filter:
+256 taps 31.5 dB / 512 26.1 / 1024 (t1024-cold 30.4, t4096 31.0) — replay is single-echo-path so
+the tail-depth difference does not bind; CPU per 16 kHz sample (amd64, relative only):
+256 taps 1.00 µs, 512 0.73, 1024 1.15 — 17–35x realtime headroom even at 1024, and armv7 scale
+tracks the FFT block count linearly enough that 1024 stays comfortably inside one core's budget
+(parent card measured Idle 95–97%). The house has TWO dots (lounge→kitchen) — the room path is
+short and the 57 ms of spare window costs little. **Recommendation: keep 1024; fewer taps buy
+nothing measurable and would cost re-verifying every deploy.**
+
+**3. AGC freeze while sounding.** Already implemented, no change needed: the leveler is updated
+per-frame with `s.SetPlayback(sounding)` (mic.go broadcast), and libcountertop's leveler holds the
+floor and skips gain movement when `sounding` is set (level.go observe/apply). This is why
+feedback looping appears OFF but not ON.
+
+**Knob that matters (not tunable in echolocal today): near-end double-talk deliverability under
+denoise.** The suppressor applies ~14–15 dB of gain reduction to near-end speech whenever the MDF
+reports echo residual, i.e. essentially always in open duplex (gain floor =
+exp(0.2302585·EchoSuppressActive) weighted by pframe ≈ 1 while sounding). Raising
+EchoSuppressActive to 0 dB is one line on the Preprocessor (`p.EchoSuppressActive = 0` constructed
+directly — no upstream change needed) and would hand near-end speech through untouched while the
+MDF handles the echo, at the risk of hearing more residual tail. Numbers above say −15 ≈ −40
+measurement-wise, so the choice between them is an ear judgement; −0 is NOT recommended
+(residual echo would be unmasked, the OFF-take failure mode is evidence enough).
+
+**Tooling shipped:** `TestReplaySuppressSweep` (SUPPRESS_REPLAY / SUPPRESS_REPLAY_OUT),
+`TestCancellerCPUSweep` (BENCH_REPLAY), replay-variants in TestReplayPipeline, and
+`~/.hermes/cache/scratch/bin/replay_erle.py`. `Source.Dropped()` now prints in
+`ctl audio cancel` (bb91926) — the headroom seam for the sustained-duplex deploy card.
+
+Decision: **no v1/v2 default changes without a witnessed ear run.** If a live v2 open-duplex run
+reports chop, the candidate is EchoSuppressActive −40 → −15 (one line in `newSuppressor`
+constructing the Preprocessor directly), NOT taps and NOT AGC.
+
 ## D-DI-3 — Permissions & ring contract
 - Permission model: **per-pair map** (source→target), schema from day one; unset pairs **default to allow-household** so rollout behaves trust-wide without config.
 - **Ring-first in v1, all cases**: callee gets chime + LED + "incoming from kitchen"; accepts via voice "answer" or button. `silent_connect` reserved as a per-pair schema field for later; **announce/listen-in-only mode is deferred** (not in v1).

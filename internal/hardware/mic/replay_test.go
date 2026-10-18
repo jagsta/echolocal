@@ -48,7 +48,11 @@ func TestReplayPipeline(t *testing.T) {
 		{"cold", true, true, false, true, 0, false},
 		{"cold-no-denoise", true, false, false, true, 0, false},
 		{"raw-cold", true, false, false, true, 0, true},
-		{"4096", true, true, false, false, 4096, false},
+		{"256", true, true, false, false, 256, false},
+		{"256-cold", true, true, false, true, 256, false},
+		{"512", true, true, false, false, 512, false},
+		{"512-cold", true, true, false, true, 512, false},
+		{"1024-cold", true, true, false, true, 1024, false},
 		{"4096-cold", true, true, false, true, 4096, false},
 		{"4096-raw-cold", true, false, false, true, 4096, true},
 	}
