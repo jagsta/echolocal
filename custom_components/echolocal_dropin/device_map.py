@@ -49,6 +49,15 @@ DROPIN_DEVICE_MAP: dict[str, dict[str, str]] = {
         "announce_name": "kitchen",
         "session_sensor": "sensor.kitchen_kitchen_microphone_intercom_session",
     },
+    "509f9b8f487aebdf3971fb88cafc3bf7": {
+        "node": "jasmine",
+        "area": "mins_room",
+        "host": "jasmine-dot.jagbains.org",
+        "satellite_entity": "assist_satellite.jasmine_assist_satellite",
+        "speaker_entity": "media_player.jasmine_speaker",
+        "announce_name": "Jasmine",
+        "session_sensor": "sensor.mins_room_jasmine_microphone_intercom_session",
+    },
 }
 
 # The dots' LAN DNS zone (D-P2P-5): room-dot.<domain> resolves on the LAN and
