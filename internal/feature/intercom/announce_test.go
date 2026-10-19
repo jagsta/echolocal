@@ -312,8 +312,9 @@ func TestCaptureSupersedesAFinishedSlot(t *testing.T) {
 	if i.ann.now() != annCapturing {
 		t.Fatalf("lane after superseding capture: %s, want annCapturing", i.ann.now())
 	}
-	if chimed != 1 {
-		t.Fatalf("superseding capture chimed %d times, want 1", chimed)
+	// D-ANN-17a: the capture lane never chimes; the prompt is HA's TTS.
+	if chimed != 0 {
+		t.Fatalf("superseding capture chimed %d times — D-ANN-17a: the capture lane never chimes", chimed)
 	}
 
 	// In-flight states still refuse.
@@ -357,7 +358,9 @@ func TestCaptureWaitsForTheAssistTurn(t *testing.T) {
 		close(started)
 		return supply, func() {}
 	}
-	a.chime = func(string, []sharedtone.Note) { open.Store(false) } // turn "ends" at the chime moment
+	// D-ANN-17a: no capture chime — the turn "ends" on a timer and
+	// runCapture must wait for that, not for it.
+	time.AfterFunc(50*time.Millisecond, func() { open.Store(false) })
 
 	go a.runCapture("kitchen")
 	select {
@@ -376,8 +379,7 @@ func TestCaptureCompleteStoresAndServe(t *testing.T) {
 	frames := framesOf(announceRecordLeadInFrames+announceMinSpokenFrames+25, 3000)
 	a.listen = func() (<-chan []int16, func()) { return frames, func() {} }
 
-	// UX reorder: Capture claims the lane + chimes; runCapture expects to
-	// inherit annCapturing from it.
+	// Capture claims the lane; runCapture expects to inherit annCapturing.
 	a.mu.Lock()
 	a.state = annCapturing
 	a.mu.Unlock()

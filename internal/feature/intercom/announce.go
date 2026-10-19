@@ -12,12 +12,15 @@ package intercom
 //     registered dot may pull.
 //   - D-ANN-3/4: capture is the PRIMARY mode. Wake-word sentence → HA's
 //     intent automation invokes dropin_announce → this dot waits for the
-//     assist turn to END cleanly, then chimes and opens a FIXED 15s window
-//     with early bail on silence. The t_650b2f99 hazard class (never play or
-//     capture from inside an open assist turn) is respected structurally:
-//     capture runs on its own goroutine and WAITS for the turn to drain
-//     before touching the mic.
-//   - D-ANN-6: chime at capture START only; no end-of-capture signal.
+//     assist turn to END cleanly, then opens a FIXED 15s window with early
+//     bail on silence. The t_650b2f99 hazard class (never play or capture
+//     from inside an open assist turn) is respected structurally: capture
+//     runs on its own goroutine and WAITS for the turn to drain before
+//     touching the mic.
+//   - D-ANN-6: NO capture chime (17a, Jag ruling 19 Oct: it collided with
+//     the prompt TTS) and no end-of-capture signal; the spoken prompt and
+//     the D-ANN-16 listen-blue are the user's cues.
+//   - D-ANN-16: the capture window claims the listen-blue LED.
 //   - D-ANN-7/8: the origin dot stores the capture and serves it on its
 //     existing HTTPS web surface. Plain dot-to-dot GET, NO pairing ceremony —
 //     the phone gate does NOT apply to announce fetches.
@@ -207,10 +210,11 @@ func (a *announcer) callLane() string {
 // completion from the session sensor; the dot stores + serves the capture.
 func (i *Intercom) Capture(room string) {
 	a := &i.ann
-	// D-ANN UX (reordered 18 Oct, Jag ruling): chime fires AT INVOKE, not
-	// after the turn drain — the spoken "speak now" prompt and the chime ride
-	// the invoke response, and the capture window opens as soon as the turn
-	// drains. Silence-bail counters exclude the chime/prompt lead-in.
+	// D-ANN UX: the spoken prompt is HA's reply on the invoking dot itself
+	// ("What's the announcement?", 17a — an earlier dot-side chime rode the
+	// invoke but the prompt TTS masked it on the same speaker; Jag ruled the
+	// chime AWAY 19 Oct). Capture claims the lane here and hands it to the
+	// runCapture goroutine.
 	// NOTE: no deferred reset here — Capture hands the lane to the
 	// runCapture goroutine (still annCapturing across the turn-wait); a
 	// defer would fire at Capture's return and reset the lane to idle
@@ -238,9 +242,6 @@ func (i *Intercom) Capture(room string) {
 	}
 	a.state = annCapturing
 	a.mu.Unlock()
-	if a.chime != nil {
-		a.chime("announce capture", sharedtone.ToneTimer)
-	}
 	go a.runCapture(room)
 }
 
@@ -334,10 +335,11 @@ func (a *announcer) record() (pcm []int16, why string, heard int) {
 	hard := time.NewTimer((announceWindowFrames + 300) * micFramePeriod)
 	defer hard.Stop()
 
-	// D-ANN UX reorder: the chime rides the INVOKE (Capture), not the record
-	// start; record() skips its own lead-in before speech counting begins.
-	// announceRecordLeadIn ALSO guards the first ~1.5s of frame counting: the
-	// chime/prompt tail couples into the mic and would be counted as speech
+	// D-ANN UX: capture starts only after record()'s own waiting; record()
+	// skips its own lead-in before speech counting begins. The lead-in
+	// (announceRecordLeadInFrames) still guards the first ~1.5s of frame
+	// counting: the PROMPT tail ("What's the announcement?", HA's TTS reply
+	// on the invoke) couples into the mic and would be counted as speech
 	// (live 18 Oct: 22 bleed frames deadlocked every silence bail — heard>0
 	// kills dead-silence, heard<50 blocks trailing-bail — 13.6s of true
 	// silence recorded until hard cut).
