@@ -409,6 +409,10 @@ func (a *announcer) record() (pcm []int16, why string, heard int) {
 				settled = true
 				bufStart = len(buf) / 320
 				a.captureLED(true)
+				// prototype 2 (19 Oct, Jag ask): a non-TTS tick rides the go
+				// cue — 80ms ToneVolume, inaudible bleed (~2 frames), fired
+				// AT settle so it never pre-dates the publishable span.
+				a.chime("announce go", sharedtone.ToneVolume)
 			}
 			if spoken >= announceWindowFrames {
 				return tail(), "hard cut", heard

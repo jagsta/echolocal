@@ -262,7 +262,7 @@ func TestCaptureClaimsAndReleasesTheBlueLED(t *testing.T) {
 	// exactly once — the ring must light during the window and never leak.
 	for _, endInAbort := range []bool{true, false} {
 		claims, releases = 0, 0
-		a, _ := announceFixture(t)
+		a, s := announceFixture(t)
 		a.notify = func(announceState) {}
 		a.captureLED = led
 		if endInAbort {
@@ -295,6 +295,10 @@ func TestCaptureClaimsAndReleasesTheBlueLED(t *testing.T) {
 		a.runCapture("kitchen")
 		if claims != 1 || releases != 1 {
 			t.Fatalf("abort=%v: LED claims %d releases %d, want 1/1 (D-ANN-18 settle)", endInAbort, claims, releases)
+		}
+		// prototype 2: exactly ONE go-tick rides the settle.
+		if s.chimes.Load() != 1 {
+			t.Fatalf("abort=%v: go-ticks %d, want 1 (rides the settle)", endInAbort, s.chimes.Load())
 		}
 	}
 }
@@ -389,8 +393,10 @@ func TestCaptureCompleteStoresAndServe(t *testing.T) {
 	if a.now() != annCaptured {
 		t.Fatalf("lane state after capture: %s", a.now())
 	}
+	// No captureLED in this fixture ⇒ no settle ⇒ the go-tick must not fire
+	// (D-ANN-18 prototype 2: the tick rides the settle moment only).
 	if s.chimes.Load() != 0 {
-		t.Fatalf("runCapture chimed (chime moved to Capture): %d", s.chimes.Load())
+		t.Fatalf("capture chimed without a settle cue: %d", s.chimes.Load())
 	}
 
 	w := httptest.NewRecorder()
