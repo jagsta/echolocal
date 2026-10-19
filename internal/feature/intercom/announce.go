@@ -362,6 +362,7 @@ func (a *announcer) record() (pcm []int16, why string, heard int) {
 		buf      []int16
 		spoken   int
 		quiet    int                   // CONTIGUOUS silence: reset on any post-lead-in speech frame
+		settleQ  int                   // D-ANN-18c: contiguous quiet COUNTING the lead-in
 		settled  = a.captureLED == nil // D-ANN-18: cue fires once
 		bufStart int                   // D-ANN-18b: publishable frames begin here
 	)
@@ -377,6 +378,7 @@ func (a *announcer) record() (pcm []int16, why string, heard int) {
 			leadIn := spoken <= announceRecordLeadInFrames
 			buf = append(buf, frame...)
 			if frameRMS(frame) < announceSilenceRMS {
+				settleQ++
 				if !leadIn {
 					quiet++
 					switch {
@@ -393,11 +395,17 @@ func (a *announcer) record() (pcm []int16, why string, heard int) {
 				heard++
 				quiet = 0
 			}
-			// D-ANN-18: the "speak now" cue — first real lull (>200ms)
-			// inside the usable span lights the listen-blue once; 18b:
-			// the publishable capture STARTS there too (drain residue
-			// stays out of the recording).
-			if !settled && spoken <= announceSettleSpanFrames && quiet >= announceSettleQuietFrames {
+			if frameRMS(frame) < announceSilenceRMS {
+			} else {
+				settleQ = 0
+			}
+			// D-ANN-18: the "go" cue — first real lull (>200ms) lights the
+			// listen-purple once; 18b: the publishable capture STARTS there
+			// (drain residue stays out of the recording); 18c: the settle
+			// counts the lead-in too — with no prompt TTS the feed is quiet
+			// from frame 1 and the purple lights ~200ms after window-open
+			// instead of ~1.7s.
+			if !settled && spoken <= announceSettleSpanFrames && settleQ >= announceSettleQuietFrames {
 				settled = true
 				bufStart = len(buf) / 320
 				a.captureLED(true)

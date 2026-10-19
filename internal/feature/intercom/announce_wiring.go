@@ -78,12 +78,12 @@ func (i *Intercom) wireAnnounce() {
 			i.led.Clear()
 		}
 	}
-	// D-ANN-16: the CAPTURE side holds the wake/listen blue for its window —
-	// stock-Alexa reading (t_05fc05ad): listening = blue. BlueChase is
-	// palette-locked, so the base colour is ignored.
+	// D-ANN-18: the CAPTURE side claims PURPLE for its window — the same
+	// violet family as the receiver's announce playback (D-ANN-11), chosen
+	// 19 Oct (prototype 1) to disambiguate intent-blue from action-purple.
 	a.captureLED = func(on bool) {
 		if on {
-			i.led.Play(led.EffectBlueChase, led.Color{})
+			i.led.Play(led.EffectAnnounce, led.Color{})
 		} else {
 			i.led.Clear()
 		}
