@@ -250,17 +250,21 @@ func TestCaptureNeverSpokeAbortsTheLane(t *testing.T) {
 // listen-blue at record start and every exit path (abort and success) releases
 // it — the ring must not go dark, and must not stay claimed, during a window.
 func TestCaptureClaimsAndReleasesTheBlueLED(t *testing.T) {
-	claims := 0
-	run := func(endInAbort bool) {
+	var claims, releases int
+	led := func(on bool) {
+		if on {
+			claims++
+		} else {
+			releases++
+		}
+	}
+	// both capture paths claim the blue at the D-ANN-18 settle and release
+	// exactly once — the ring must light during the window and never leak.
+	for _, endInAbort := range []bool{true, false} {
+		claims, releases = 0, 0
 		a, _ := announceFixture(t)
 		a.notify = func(announceState) {}
-		a.captureLED = func(on bool) {
-			if on {
-				claims++
-			} else {
-				claims--
-			}
-		}
+		a.captureLED = led
 		if endInAbort {
 			// never-spoke: 6s of dead air past the lead-in.
 			frames := framesOf(announceRecordLeadInFrames+announceDeadSilenceFrames+10, 0)
@@ -289,11 +293,9 @@ func TestCaptureClaimsAndReleasesTheBlueLED(t *testing.T) {
 		a.state = annCapturing
 		a.mu.Unlock()
 		a.runCapture("kitchen")
-	}
-	run(true)
-	run(false)
-	if claims != 0 {
-		t.Fatalf("capture LED claim leaked: balance %d after abort+success paths", claims)
+		if claims != 1 || releases != 1 {
+			t.Fatalf("abort=%v: LED claims %d releases %d, want 1/1 (D-ANN-18 settle)", endInAbort, claims, releases)
+		}
 	}
 }
 

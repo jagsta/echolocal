@@ -106,6 +106,12 @@ const (
 	// and its tail couples into the mic right where record() begins.
 	announceRecordLeadInFrames = 75
 
+	// D-ANN-18 settle cue: the drain tail keeps the feed loud/cancelled for
+	// ~2s past the prompt; the first genuine quiet lull inside the early
+	// span lights the capture LED (the "go" moment — dark until then).
+	announceSettleQuietFrames = 10  // 200ms contiguous quiet
+	announceSettleSpanFrames  = 300 // cue can only fire in the first 6s
+
 	// announceCapTTL is how long a served capture stays on the origin (one
 	// slot, overwritten by the next capture; past this TTL a retry gets 410).
 	announceCapTTL = 2 * time.Minute
@@ -170,7 +176,7 @@ type announcer struct {
 	setLED func(on bool) // purple on/off around playback (D-ANN-11)
 
 	captureLED func(on bool) // listen-blue on/off around the capture window (D-ANN-16)
-	notify func(state announceState)
+	notify     func(state announceState)
 }
 
 // suspend pauses/restores the assistant pipeline around lane audio (D-ANN-4/10).
@@ -272,13 +278,22 @@ func (a *announcer) runCapture(room string) {
 	a.mu.Unlock()
 	a.suspend(true)
 	defer a.suspend(false)
-	// D-ANN-16 (19 Oct live witness): the wake/listen blue dies with the
-	// assist turn, and a bare record() leaves the ring DARK for the whole
-	// window — the dot is recording with no visual acknowledgement. Claim the
-	// listen-blue for the window (the same claim discipline as the receiver's
-	// purple, D-ANN-11); every exit path releases via defer.
+	// D-ANN-18 (Jag ruling 19 Oct, raw-capture DECLINED): instead of
+	// capturing the raw mic, the origin tells the user when the feed is
+	// usable. The dot's speaker drains ~2s past "turn ended" (HA TTS
+	// chunking + the dot's media queue), the canceller zero-suppresses the
+	// feed the whole time (level-based; see cancel.go sounding()), and any
+	// words spoken into that span are destroyed — live: "Hello Jasmine"
+	// vanished at a 1s natural pause. So the capture LED claim is DELAYED
+	// to the settle moment: the first stretch of ~200ms contiguous quiet
+	// inside the early span. Dark = not yet, listen-blue = speak now.
+	// D-ANN-18b (19 Oct witness): the drain residue was still being
+	// BUFFERED — waiting for the blue then left ~2s of dead space at the
+	// head of the recording. buf therefore also STARTS at settle: the
+	// pre-settle frames keep driving the counters but never publish.
+	// A capture that never settles (continuous speech, no lull) keeps
+	// everything — the old behavior. Still fires at most once.
 	if a.captureLED != nil {
-		a.captureLED(true)
 		defer a.captureLED(false)
 	}
 
@@ -344,15 +359,19 @@ func (a *announcer) record() (pcm []int16, why string, heard int) {
 	// kills dead-silence, heard<50 blocks trailing-bail — 13.6s of true
 	// silence recorded until hard cut).
 	var (
-		buf    []int16
-		spoken int
-		quiet  int // CONTIGUOUS silence: reset on any post-lead-in speech frame
+		buf      []int16
+		spoken   int
+		quiet    int                   // CONTIGUOUS silence: reset on any post-lead-in speech frame
+		settled  = a.captureLED == nil // D-ANN-18: cue fires once
+		bufStart int                   // D-ANN-18b: publishable frames begin here
 	)
+	// tail returns the published capture (minus any drained pre-settle span).
+	tail := func() []int16 { return buf[bufStart*320:] }
 	for {
 		select {
 		case frame, ok := <-frames:
 			if !ok {
-				return buf, "fan-out closed", heard
+				return tail(), "fan-out closed", heard
 			}
 			spoken++
 			leadIn := spoken <= announceRecordLeadInFrames
@@ -364,21 +383,30 @@ func (a *announcer) record() (pcm []int16, why string, heard int) {
 					// An accidental trigger (pure noise floor, nothing ever
 					// heard) must not hold the mic for 15 s.
 					case heard == 0 && quiet >= announceDeadSilenceFrames:
-						return buf, "never spoke", heard
+						return tail(), "never spoke", heard
 					// After real speech, a trailing lull ends the window.
 					case heard >= announceMinSpokenFrames && quiet >= announceBailSilenceFrames:
-						return buf, "trailing silence", heard
+						return tail(), "trailing silence", heard
 					}
 				}
 			} else if !leadIn {
 				heard++
 				quiet = 0
 			}
+			// D-ANN-18: the "speak now" cue — first real lull (>200ms)
+			// inside the usable span lights the listen-blue once; 18b:
+			// the publishable capture STARTS there too (drain residue
+			// stays out of the recording).
+			if !settled && spoken <= announceSettleSpanFrames && quiet >= announceSettleQuietFrames {
+				settled = true
+				bufStart = len(buf) / 320
+				a.captureLED(true)
+			}
 			if spoken >= announceWindowFrames {
-				return buf, "hard cut", heard
+				return tail(), "hard cut", heard
 			}
 		case <-hard.C:
-			return buf, "hard timer", heard
+			return tail(), "hard timer", heard
 		}
 	}
 }
