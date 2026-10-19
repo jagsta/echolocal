@@ -147,6 +147,16 @@ func (a *announcer) runPlay(origin string) {
 	}
 	a.playback()(decodePCM16LE(pcm))
 	slog.Info("announce played", "origin", origin, "seconds", float64(len(pcm)/2)/float64(mic.Rate))
+
+	// D-ANN-10/11 (19 Oct live): the playback sink is fire-and-forget, so a
+	// bare return released purple AND lifted the D-ANN-10 pipeline suspension
+	// and left the lane to idle at playback START (Jag witness: purple
+	// extinguished during playback). Hold this goroutine for the capture's
+	// duration + a buffer tail, then release in the same order they were
+	// taken. The defers below re-fire afterwards as idempotent no-ops; the
+	// early-return paths (fetch fail) still release immediately.
+	time.Sleep(time.Duration(len(pcm)/2) * time.Second / mic.Rate)
+	time.Sleep(500 * time.Millisecond) // codec + mixer buffer tail
 }
 
 // awaitCallLaneResolved polls the call lane until it leaves RINGING. Swapped

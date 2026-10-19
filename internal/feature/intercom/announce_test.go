@@ -246,6 +246,38 @@ func TestCaptureNeverSpokeAbortsTheLane(t *testing.T) {
 	}
 }
 
+// TestCaptureSupersedesAFinishedSlot pins the 19 Oct broadcast fix: a new
+// Capture over a COMPLETED annCaptured slot proceeds (retires it) — the D-ANN
+// slot is 'one, overwritten by the next capture'; only in-flight states
+// (annCapturing, annPlaying) refuse. Live: the second announce within the
+// 2-min TTL was refused AND the orchestration re-played the previous capture.
+func TestCaptureSupersedesAFinishedSlot(t *testing.T) {
+	i := &Intercom{}
+	i.ann = announcer{state: annCaptured}
+	i.ann.callFn = func() string { return "idle" }
+	var chimed int
+	i.ann.chime = func(string, []sharedtone.Note) { chimed++ }
+	i.Capture("kitchen")
+	if i.ann.now() != annCapturing {
+		t.Fatalf("lane after superseding capture: %s, want annCapturing", i.ann.now())
+	}
+	if chimed != 1 {
+		t.Fatalf("superseding capture chimed %d times, want 1", chimed)
+	}
+
+	// In-flight states still refuse.
+	for _, st := range []announceState{annCapturing, annPlaying} {
+		i2 := &Intercom{}
+		i2.ann = announcer{state: st}
+		i2.ann.callFn = func() string { return "idle" }
+		i2.ann.chime = func(string, []sharedtone.Note) { t.Fatalf("chimed while %s", string(st)) }
+		i2.Capture("kitchen")
+		if i2.ann.now() != st {
+			t.Fatalf("lane changed during refused capture: %s", i2.ann.now())
+		}
+	}
+}
+
 // TestCaptureRefusedWhileInCall pins D-ANN-13's dot-side guard: the origin
 // refuses a capture while the session is off idle.
 func TestCaptureRefusedWhileInCall(t *testing.T) {

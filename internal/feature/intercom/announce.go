@@ -212,10 +212,18 @@ func (i *Intercom) Capture(room string) {
 		return
 	}
 	a.mu.Lock()
-	if a.state != annIdle { // a second announce raced: loses
+	// D-ANN: one slot, overwritten by the NEXT capture. A finished (annCaptured)
+	// slot is retired by a new Capture — 19 Oct live: the lane only otherwise
+	// clears at TTL+serve, so an announce within 2 minutes of the last one was
+	// refused AND the orchestration re-played the PREVIOUS capture instead.
+	// Only in-flight states (annCapturing, annPlaying) refuse.
+	if a.state != annIdle && a.state != annCaptured { // a second announce raced: loses
 		a.mu.Unlock()
 		slog.Warn("announce capture refused: lane busy", "room", room, "state", string(a.state))
 		return
+	}
+	if a.state == annCaptured {
+		slog.Info("announce capture superseded a previous slot", "room", room)
 	}
 	a.state = annCapturing
 	a.mu.Unlock()
