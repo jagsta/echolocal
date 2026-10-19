@@ -99,8 +99,11 @@ const annRetryDelay = announceFetchInterval
 // blocks its caller's read loop: playback runs on its own goroutine.
 func (i *Intercom) Play(origin string) {
 	a := &i.ann
-	if a.now() != annIdle {
-		slog.Warn("announce play refused: lane busy", "state", string(a.now()), "origin", origin)
+	switch s := a.now(); s {
+	case annIdle, annCaptured: // 'captured' = a serve slot is held; receiving is not contentions with it
+		_ = s
+	default:
+		slog.Warn("announce play refused: lane busy", "state", string(s), "origin", origin)
 		return
 	}
 	go a.runPlay(origin)

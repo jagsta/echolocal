@@ -83,7 +83,7 @@ func TestCaptureWindowHardCut(t *testing.T) {
 	a.listen = func() (<-chan []int16, func()) { return unbounded, func() {} }
 
 	a.chime = func(string, []sharedtone.Note) { s.chimes.Add(1) }
-	pcm, why := a.record()
+	pcm, why, _ := a.record()
 	if why != "hard cut" && why != "hard timer" {
 		t.Fatalf("window did not hard-cut: %s", why)
 	}
@@ -100,8 +100,9 @@ func TestCaptureWindowHardCut(t *testing.T) {
 func TestCaptureEarlyBailOnTrailingSilence(t *testing.T) {
 	a, _ := announceFixture(t)
 	spoken := 100 // 2s of speech
-	frames := framesOf(spoken+announceBailSilenceFrames+10, 0)
-	// 100 loud frames then silence.
+	// The lead-in (75 frames) and the speech are pre-supplied; after the
+	// lead-in the counters see 100 loud frames then a 1.5s+ lull.
+	lead := announceRecordLeadInFrames
 	loud := make(chan []int16, spoken)
 	for range spoken {
 		frame := make([]int16, 320)
@@ -111,42 +112,137 @@ func TestCaptureEarlyBailOnTrailingSilence(t *testing.T) {
 		loud <- frame
 	}
 	close(loud)
-	merged := make(chan []int16, spoken+300)
+	merged := make(chan []int16, lead+spoken+300)
+	silent := func() []int16 { return make([]int16, 320) }
+	for range lead {
+		merged <- silent() // lead-in: chime tail, ignored by the counters
+	}
 	for f := range loud {
 		merged <- f
 	}
-	for f := range frames {
-		merged <- f
+	for range announceBailSilenceFrames + 10 {
+		merged <- silent()
 	}
 	close(merged)
 
 	a.listen = func() (<-chan []int16, func()) { return merged, func() {} }
-	pcm, why := a.record()
+	pcm, why, _ := a.record()
 	if why != "trailing silence" {
 		t.Fatalf("did not bail on trailing silence: %s", why)
 	}
-	if got := len(pcm) / 320; got <= announceMinSpokenFrames {
+	if got := len(pcm) / 320; got <= announceMinSpokenFrames+lead {
 		t.Fatalf("captured %d frames — speech missing", got)
 	}
 }
 
 // TestCaptureNeverSpokeBails pins the accidental-trigger path: pure silence
-// from the first frame ends the window after ~3s, not 15s.
+// from the first frame ends the window after ~6s of contiguous dead air, and
+// reports heard=0 so runCapture ABORTS (lane to idle) rather than publishing
+// a silence-only capture wedged as unservable annCaptured (19 Oct live: the
+// lane stuck 'captured' refused every later announce for minutes).
 func TestCaptureNeverSpokeBails(t *testing.T) {
 	a, _ := announceFixture(t)
-	frames := framesOf(announceDeadSilenceFrames+10, 0)
+	// Lead-in (chime tail, ignored) then 6s+ of dead silence.
+	frames := framesOf(announceRecordLeadInFrames+announceDeadSilenceFrames+10, 0)
 	a.listen = func() (<-chan []int16, func()) { return frames, func() {} }
-	pcm, why := a.record()
+	pcm, why, heard := a.record()
 	if why != "never spoke" {
 		t.Fatalf("did not bail on never-spoke: %s", why)
 	}
-	// The buffer holds only silence — runCapture's len/amp check is on the
-	// RECORDED PCM; silence-only captures carry real frames but no speech.
-	// The never-spoke bail exists to END the window early, not to drop data;
-	// runCapture publishes such a capture as-is (a 3s silent announcement is
-	// harmless and faster than second-guessing the RMS line).
+	if heard != 0 {
+		t.Fatalf("never-spoke counted %d speech frames", heard)
+	}
 	if got := frameRMS(pcm); got >= announceSilenceRMS {
 		t.Fatalf("silence-only capture carries speech: rms %.0f", got)
+	}
+}
+
+// TestCaptureBailCountersAreContiguous pins the 19 Oct live fix: the AEC
+// zeroes the chime/prompt tail AFTER the lead-in too (sounding window), and
+// those silent frames must NOT count toward the bails — speech arriving well
+// after the prompt must still be captured, and a mid-sentence breath pause
+// must not end the window.
+func TestCaptureBailCountersAreContiguous(t *testing.T) {
+	a, _ := announceFixture(t)
+	lead := announceRecordLeadInFrames
+	merged := make(chan []int16, 4096)
+	silent := func() []int16 {
+		f := make([]int16, 320)
+		for i := range f {
+			f[i] = 4 // AEC zeroed tail: under threshold, not literal zero
+		}
+		return f
+	}
+	loud := func() []int16 {
+		f := make([]int16, 320)
+		for i := range f {
+			f[i] = 3000
+		}
+		return f
+	}
+	// lead-in, then MORE quiet post-lead-in (the sounding tail), then speech
+	// arriving 3s in — the old cumulative counter would have been far past
+	// the dead-silence threshold and 'never spoke' by now; contiguous keeps
+	// listening (each silence stretch resets on the next speech).
+	for range lead {
+		merged <- silent()
+	}
+	for range announceRecordLeadInFrames { // another 1.5s of AEC silence
+		merged <- silent()
+	}
+	// First burst of speech (just over the min-spoken line), breath pause,
+	// more speech: the breath pause must NOT kill the capture.
+	for i := 0; i < announceMinSpokenFrames+10; i++ {
+		merged <- loud()
+	}
+	for range announceBailSilenceFrames - 1 { // 1.49s pause: under the line
+		merged <- silent()
+	}
+	for i := 0; i < announceMinSpokenFrames+10; i++ {
+		merged <- loud()
+	}
+	// Only NOW end with a full 1.5s trailing lull.
+	for range announceBailSilenceFrames + 10 {
+		merged <- silent()
+	}
+	close(merged)
+	a.listen = func() (<-chan []int16, func()) { return merged, func() {} }
+	pcm, why, heard := a.record()
+	if why != "trailing silence" {
+		t.Fatalf("capture ended early: %s", why)
+	}
+	if got := len(pcm) / 320; got < lead+announceRecordLeadInFrames+2*(announceMinSpokenFrames+10) {
+		t.Fatalf("captured %d frames — the second speech burst is missing", got)
+	}
+	if heard < 2*(announceMinSpokenFrames+10) {
+		t.Fatalf("heard=%d, both speech bursts not counted", heard)
+	}
+}
+
+// TestCaptureNeverSpokeAbortsTheLane pins the 19 Oct lane-wedge fix: a
+// never-spoke (or under-the-line) capture returns the lane to annIdle and
+// publishes NOTHING — the receiver's retry loop gets a clean 404 instead of
+// silence, and the next announce is not refused 'lane busy'.
+func TestCaptureNeverSpokeAbortsTheLane(t *testing.T) {
+	a, _ := announceFixture(t)
+	a.notify = func(state announceState) {}
+	frames := framesOf(announceRecordLeadInFrames+announceDeadSilenceFrames+10, 0)
+	a.listen = func() (<-chan []int16, func()) { return frames, func() {} }
+
+	a.mu.Lock()
+	a.state = annCapturing
+	a.mu.Unlock()
+	a.runCapture("kitchen")
+	if a.now() != annIdle {
+		t.Fatalf("lane after never-spoke capture: %s, want annIdle", a.now())
+	}
+	if !a.captured.at.IsZero() {
+		t.Fatal("an aborted capture published a slot")
+	}
+	w := httptest.NewRecorder()
+	a.serve(w, httptest.NewRequest(http.MethodGet, announcePath, nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("serve after abort: %d, want 404 (retryable)", w.Code)
 	}
 }
 
@@ -194,15 +290,20 @@ func TestCaptureWaitsForTheAssistTurn(t *testing.T) {
 func TestCaptureCompleteStoresAndServe(t *testing.T) {
 	a, s := announceFixture(t)
 	a.notify = func(state announceState) {}
-	frames := framesOf(120, 3000)
+	frames := framesOf(announceRecordLeadInFrames+announceMinSpokenFrames+25, 3000)
 	a.listen = func() (<-chan []int16, func()) { return frames, func() {} }
 
+	// UX reorder: Capture claims the lane + chimes; runCapture expects to
+	// inherit annCapturing from it.
+	a.mu.Lock()
+	a.state = annCapturing
+	a.mu.Unlock()
 	a.runCapture("kitchen") // synchronous: the fixture's supply is finite
 	if a.now() != annCaptured {
 		t.Fatalf("lane state after capture: %s", a.now())
 	}
-	if s.chimes.Load() != 1 {
-		t.Fatalf("start chime count: %d", s.chimes.Load())
+	if s.chimes.Load() != 0 {
+		t.Fatalf("runCapture chimed (chime moved to Capture): %d", s.chimes.Load())
 	}
 
 	w := httptest.NewRecorder()

@@ -71,15 +71,28 @@ const (
 	// mic far below it and close speech runs well above; the line errs LOW —
 	// an early bail LOSES speech, so it must miss silence more eagerly than
 	// it misses speech.
-	announceSilenceRMS        = 200
-	announceBailSilenceFrames = 75  // 1.5 s of trailing silence after speech
+	announceSilenceRMS = 200
+	// Live 19 Oct: the AEC-sounding window (chime + "Speak now." tail, ~2s
+	// POST-lead-in) is digital SILENCE — the canceller removes the bleed, so
+	// those frames are genuinely quiet and every one of them used to count
+	// toward BOTH bails: (a) trailing-silence fired TOTAL-based, so the first
+	// breath pause after ~1s of speech ended a mid-sentence capture (probe5
+	// cut at exactly 250 frames), and (b) dead-silence fired ~1.5s after the
+	// TTS finished, before a natural reaction could begin (probe1-4: every
+	// human test "never spoke" seconds=4.5).
+	announceBailSilenceFrames = 150 // 3 s of CONTIGUOUS trailing silence (Jag ruling 19 Oct: 1.5s cut mid-sentence)
 	announceMinSpokenFrames   = 50  // under 1 s of speech never early-bails
-	announceDeadSilenceFrames = 150 // 3 s of nothing at all bails too
+	announceDeadSilenceFrames = 300 // 6 s of contiguous dead air bails too
 
 	// announceTurnWait bounds the D-ANN-4 wait for the assist turn to end
 	// cleanly before capture opens; announceTurnPoll is the check pace.
 	announceTurnWait = 10 * time.Second
 	announceTurnPoll = 100 * time.Millisecond
+
+	// announceRecordLeadInFrames excludes the chime/speak-now tail from the
+	// speech counters (75 frames = 1.5 s): the UX reorder chimes AT invoke,
+	// and its tail couples into the mic right where record() begins.
+	announceRecordLeadInFrames = 75
 
 	// announceCapTTL is how long a served capture stays on the origin (one
 	// slot, overwritten by the next capture; past this TTL a retry gets 410).
@@ -183,23 +196,39 @@ func (a *announcer) callLane() string {
 // completion from the session sensor; the dot stores + serves the capture.
 func (i *Intercom) Capture(room string) {
 	a := &i.ann
+	// D-ANN UX (reordered 18 Oct, Jag ruling): chime fires AT INVOKE, not
+	// after the turn drain — the spoken "speak now" prompt and the chime ride
+	// the invoke response, and the capture window opens as soon as the turn
+	// drains. Silence-bail counters exclude the chime/prompt lead-in.
+	// NOTE: no deferred reset here — Capture hands the lane to the
+	// runCapture goroutine (still annCapturing across the turn-wait); a
+	// defer would fire at Capture's return and reset the lane to idle
+	// beneath the goroutine (live 18 Oct: busy-on-arrival refusal, live 21:07
+	// test). All exit paths own their own setState.
 	if lane := a.callLane(); lane == "in-call" {
 		// D-ANN-13: refused while IN-CALL. Enforced dot-side regardless of
 		// HA's orchestration view — never collide with call audio.
 		slog.Warn("announce capture refused: in-call", "room", room)
 		return
 	}
-	if a.now() != annIdle {
-		slog.Warn("announce capture refused: lane busy", "room", room, "state", string(a.now()))
+	a.mu.Lock()
+	if a.state != annIdle { // a second announce raced: loses
+		a.mu.Unlock()
+		slog.Warn("announce capture refused: lane busy", "room", room, "state", string(a.state))
 		return
+	}
+	a.state = annCapturing
+	a.mu.Unlock()
+	if a.chime != nil {
+		a.chime("announce capture", sharedtone.ToneTimer)
 	}
 	go a.runCapture(room)
 }
 
-// runCapture waits for the assist turn to end cleanly (D-ANN-4), chimes at
-// start (D-ANN-6), records the 15s window, then stores + publishes. A capture
-// whose window overlapped a call start is DISCARDED at the store step: call
-// audio would be in it (D-ANN-13 mid-capture yield).
+// runCapture waits for the assist turn to end cleanly (D-ANN-4), then records
+// the 15s window and stores + publishes. A capture whose window overlapped a
+// call start is DISCARDED at the store step: call audio would be in it
+// (D-ANN-13 mid-capture yield).
 func (a *announcer) runCapture(room string) {
 	// D-ANN-4: mic ownership moves away from the assistant pipeline BEFORE
 	// capture starts. The intent automation fires while the pipeline is still
@@ -208,39 +237,39 @@ func (a *announcer) runCapture(room string) {
 	for a.turnOpen() {
 		if time.Now().After(deadline) {
 			slog.Warn("announce capture aborted: the assist turn never ended", "room", room)
+			a.setState(annIdle)
 			return
 		}
 		time.Sleep(announceTurnPoll)
 	}
 
 	a.mu.Lock()
-	if a.state != annIdle { // a second announce raced the turn-wait: loses
+	if a.state != annCapturing { // the turn-wait lost a race with teardown
 		a.mu.Unlock()
 		slog.Warn("announce capture refused: lane busy on arrival", "room", room)
 		return
 	}
-	a.state = annCapturing
 	a.mu.Unlock()
 	a.suspend(true)
 	defer a.suspend(false)
 
-	// D-ANN-6: chime at capture START only; nothing marks the end.
-	if a.chime != nil {
-		a.chime("announce capture", sharedtone.ToneTimer)
-	}
-
-	pcm, why := a.record()
+	pcm, why, heard := a.record()
 	if lane := a.callLane(); lane != "idle" && lane != "ringing" {
 		slog.Warn("announce capture discarded: a call started mid-capture")
 		a.setState(annIdle)
 		return
 	}
-	if len(pcm) == 0 {
-		slog.Warn("announce capture empty", "why", why)
+	if heard < announceMinSpokenFrames {
+		// D-ANN-3 (19 Oct live): a capture the user never meaningfully spoke
+		// into is an ABORT, not a servable capture — promoting it wedged the
+		// lane in annCaptured (HA plays silence, nothing fetches, every later
+		// announce refused 'lane busy') until a serve()'s lazy TTL demote.
+		// Return to idle; the receiver's retry loop gets a clean 404 and the
+		// lane is free for the next announce.
+		slog.Warn("announce capture aborted", "why", why, "heard", heard)
 		a.setState(annIdle)
 		return
 	}
-
 	cap := announceCapture{
 		id:   fmt.Sprintf("ann-%d", time.Now().UnixNano()),
 		room: room,
@@ -264,7 +293,7 @@ func (a *announcer) runCapture(room string) {
 // edge: hard cap at announceWindowFrames (D-ANN-14 — mid-sentence, no grace)
 // with early bail on trailing silence (D-ANN-3). Bail reasons are logged,
 // never signalled: D-ANN-6 forbids an end-of-capture cue on the origin dot.
-func (a *announcer) record() (pcm []int16, why string) {
+func (a *announcer) record() (pcm []int16, why string, heard int) {
 	listen := a.listen
 	if listen == nil {
 		listen = func() (<-chan []int16, func()) { return mic.Get().Listen("announce") }
@@ -277,39 +306,49 @@ func (a *announcer) record() (pcm []int16, why string) {
 	hard := time.NewTimer((announceWindowFrames + 300) * micFramePeriod)
 	defer hard.Stop()
 
+	// D-ANN UX reorder: the chime rides the INVOKE (Capture), not the record
+	// start; record() skips its own lead-in before speech counting begins.
+	// announceRecordLeadIn ALSO guards the first ~1.5s of frame counting: the
+	// chime/prompt tail couples into the mic and would be counted as speech
+	// (live 18 Oct: 22 bleed frames deadlocked every silence bail — heard>0
+	// kills dead-silence, heard<50 blocks trailing-bail — 13.6s of true
+	// silence recorded until hard cut).
 	var (
-		buf      []int16
-		spoken   int
-		heard    int
-		total    int
+		buf    []int16
+		spoken int
+		quiet  int // CONTIGUOUS silence: reset on any post-lead-in speech frame
 	)
 	for {
 		select {
 		case frame, ok := <-frames:
 			if !ok {
-				return buf, "fan-out closed"
+				return buf, "fan-out closed", heard
 			}
-			buf = append(buf, frame...)
 			spoken++
+			leadIn := spoken <= announceRecordLeadInFrames
+			buf = append(buf, frame...)
 			if frameRMS(frame) < announceSilenceRMS {
-				total++
-				switch {
-				// An accidental trigger (pure noise floor, nothing ever
-				// heard) must not hold the mic for 15 s.
-				case heard == 0 && total >= announceDeadSilenceFrames:
-					return buf, "never spoke"
-				// After real speech, a trailing lull ends the window.
-				case heard >= announceMinSpokenFrames && spoken-heard >= announceBailSilenceFrames:
-					return buf, "trailing silence"
+				if !leadIn {
+					quiet++
+					switch {
+					// An accidental trigger (pure noise floor, nothing ever
+					// heard) must not hold the mic for 15 s.
+					case heard == 0 && quiet >= announceDeadSilenceFrames:
+						return buf, "never spoke", heard
+					// After real speech, a trailing lull ends the window.
+					case heard >= announceMinSpokenFrames && quiet >= announceBailSilenceFrames:
+						return buf, "trailing silence", heard
+					}
 				}
-			} else {
+			} else if !leadIn {
 				heard++
+				quiet = 0
 			}
 			if spoken >= announceWindowFrames {
-				return buf, "hard cut" // D-ANN-14: mid-sentence, no grace
+				return buf, "hard cut", heard
 			}
 		case <-hard.C:
-			return buf, "hard timer"
+			return buf, "hard timer", heard
 		}
 	}
 }
@@ -351,6 +390,21 @@ func (a *announcer) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if time.Since(cap.at) > announceCapTTL {
+		// Lazy demote: an expired slot returns the lane to idle instead of
+		// wedging Capture/Play gates on a capture nobody will ever serve
+		// (live 18 Oct: kitchen stuck in 'captured' refused every nudge).
+		a.mu.Lock()
+		if a.state == annCaptured && time.Since(a.captured.at) > announceCapTTL {
+			a.captured = announceCapture{}
+			a.state = annIdle
+			st := annIdle
+			a.mu.Unlock()
+			if a.notify != nil {
+				a.notify(st)
+			}
+		} else {
+			a.mu.Unlock()
+		}
 		http.Error(w, "announcement no longer held", http.StatusGone)
 		return
 	}

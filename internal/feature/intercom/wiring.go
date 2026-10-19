@@ -120,6 +120,10 @@ func Get() *Intercom {
 				},
 			},
 		}
+		// D-ANN (live 18 Oct): the zero-value announceState is "" not annIdle,
+		// so every Capture/Play refused with 'lane busy state=' — seed the
+		// announce lane idle before wiring.
+		shared.ann.state = annIdle
 		shared.wire()
 	})
 	return shared
