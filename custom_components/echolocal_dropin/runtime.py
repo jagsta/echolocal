@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.const import STATE_PLAYING
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -1085,9 +1085,15 @@ class DropInRuntime:
         except Exception as err:  # noqa: BLE001 — never tear a ring down on a failed cue
             _LOGGER.warning("drop-in ring announce failed: %s", err)
 
-    def _make_send(self, session_id: str):
+    def _make_send(self, session_id: str) -> Callable[[str, bytes], None]:
+        """Relay send closure. The relay's feed() runs from the machine's sync
+        emit thread, so spawning the frame task directly with
+        hass.async_create_task here is the same off-loop hard-raise class the
+        announce handler hit live 19 Oct (t_b8865628). hass.add_job is
+        thread-safe in both directions: it spawns on the loop when already
+        there and rides call_soon_threadsafe when off-loop."""
         def send(device_id: str, frame: bytes) -> None:
-            self.hass.async_create_task(self._send_frame(session_id, device_id, frame))
+            self.hass.add_job(self._send_frame, session_id, device_id, frame)
         return send
 
     async def _send_frame(self, session_id: str, device_id: str, frame: bytes) -> None:
