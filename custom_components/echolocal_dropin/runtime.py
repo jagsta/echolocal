@@ -152,10 +152,12 @@ class DropInRuntime:
         self.hass.services.async_register(DOMAIN, SERVICE_VOICE_ANSWER, handle_voice_answer)
         self.hass.services.async_register(DOMAIN, SERVICE_VOICE_HANGUP, handle_voice_hangup)
 
-        # t_47f64032 / D-ANN-2: the announce orchestration service. It is
-        # async end to end (capture-wait poll + per-target nudge), so unlike
-        # the sync-lane handlers above it registers directly — the wrapped()
-        # executor boundary would just re-block the loop around a coroutine.
+        # t_47f64032 / D-ANN-2: the announce orchestration service. The handler
+        # must be a coroutine function: HA runs a registered SYNC callable in
+        # the executor, and _announce_service calls hass.async_create_task —
+        # off-loop, which HA hard-raises on (live 19 Oct: the whole announce
+        # traceback died before the nudge loop even started). Registered as
+        # async it stays on the event loop and the task spawn is legal.
         self.hass.services.async_register(DOMAIN, SERVICE_ANNOUNCE, self._announce_service)
 
         # Card A fix (live failure 14 Oct): the machine only reaped ACTIVE
@@ -1057,13 +1059,20 @@ class DropInRuntime:
             )
         return [resolved]
 
-    def _announce_service(self, call: ServiceCall) -> None:
+    async def _announce_service(self, call: ServiceCall) -> None:
         """echolocal_dropin.announce — resolves the target set per D-ANN-2,
         refuses bad shapes loudly, then runs the async orchestration as a
         task: capture-kick on the origin, capture-completion poll (the dot's
         own ~10s fetch retry is too short to bridge a recording window), then
-        one nudge per target. Never blocks the service call itself."""
-        targets = self._resolve_announce_targets(dict(call.data))
+        one nudge per target. Never blocks the service call itself.
+
+        Registered as a COROUTINE handler so it runs on the event loop — a
+        sync handler lands in the executor and the async_create_task below
+        is hard-refused off-loop (live 19 Oct failure)."""
+        try:
+            targets = self._resolve_announce_targets(dict(call.data))
+        except CallError as err:
+            raise HomeAssistantError(str(err)) from err
         self.hass.async_create_task(self._run_announce(dict(call.data), targets))
 
     async def _run_announce(self, data: dict[str, Any], targets: list[str]) -> None:
