@@ -191,3 +191,56 @@ def test_nudge_retry_then_skip_logged(caplog):
             loop.close()
     assert attempts["n"] == rt.ANN_NUDGE_ATTEMPTS
     assert "skipped after" in caplog.text
+
+
+def test_nudge_requests_the_answer_and_names_the_lane(caplog):
+    """t_98e495f0: a busy-lane answer from the dot's action response is
+    surfaced, retried instead of counted as delivered, and 'accepted' is
+    logged only once the lane is free."""
+    rt, _hass, _calls = make_announce_runtime()
+    rt.ANN_NUDGE_DELAY_SECONDS = 0.01
+    answers = [("playing", {"announce": "playing"}),
+               ("playing", {"announce": "playing"}),
+               ("idle", {"announce": "idle"})]
+    seen: list[tuple[str, str]] = []
+
+    async def busy_then_idle(_device_id, _action, _args):
+        state, res = answers[len(seen)]
+        seen.append((state, res.get("announce")))
+        assert res.get("announce") == state
+        return dict(res, announce_ok=True)
+
+    rt._esphome_action = busy_then_idle  # type: ignore[method-assign]
+    with caplog.at_level("INFO"):
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(rt._nudge_target(KIT, "lounge-dot.jagbains.org"))
+        finally:
+            loop.close()
+    assert len(seen) == 3, "busy answers retried, idle answer accepted"
+    for _s, res_state in seen:
+        assert res_state is not None, "lane state must reach the nudge loop (t_98e495f0)"
+    assert "answered lane busy: playing" in caplog.text
+    assert "accepted" in caplog.text
+
+
+def test_action_call_carries_return_response():
+    """t_98e495f0: the transport must request the response so the dot's
+    lane-state map reaches the nudge loop (HA's esphome actions declare
+    SUPPORTS_RESPONSE_OPTIONAL)."""
+    rt, hass, _ = make_announce_runtime()
+    seen: dict = {}
+
+    async def spy(domain, service, data, blocking=True, **kw):
+        seen.update(domain=domain, service=service,
+                    blocking=blocking, return_response=kw.get("return_response"))
+        return {"announce": "idle"}
+
+    hass.async_call = spy  # type: ignore[method-assign]
+    loop = asyncio.new_event_loop()
+    try:
+        res = loop.run_until_complete(rt._esphome_action(KIT, "dropin_play", {"origin": "x"}))
+    finally:
+        loop.close()
+    assert seen["return_response"] is True and seen["blocking"] is True
+    assert res == {"announce": "idle"}

@@ -1117,12 +1117,21 @@ class DropInRuntime:
             return {"announce_ok": False, "error": "not a registered dot"}
         service = f"{facts['node']}_{action}"
         try:
-            # blocking=True: the answer (lane state) IS the refusal signal.
+            # blocking + return_response (t_98e495f0): the dot's Run returns a
+            # lane-state map; without return_response=True HA discards the
+            # ResponseData and every nudge looks identical — a delivered play
+            # and a refused/skipped one both log "accepted: None". The
+            # esphome actions declare SUPPORTS_RESPONSE_OPTIONAL, so the
+            # integration honours the request and hands the answer back.
             res = await self.hass.services.async_call(
-                "esphome", service, args, blocking=True,
+                "esphome", service, args, blocking=True, return_response=True,
             )
             if isinstance(res, dict):
-                res.setdefault("announce_ok", True)
+                if res.get("announce") is None:
+                    res.setdefault("announce_ok", True)
+                    _LOGGER.warning(
+                        "esphome.%s to %s answered with no lane state (%s) — "
+                        "delivery unverifiable", service, facts["node"], res)
                 return res
             return {"announce_ok": True}
         except Exception as err:  # noqa: BLE001 — logged, never unwinds the loop
@@ -1202,6 +1211,14 @@ class DropInRuntime:
                 await asyncio.sleep(self.ANN_NUDGE_DELAY_SECONDS)
                 continue
             state = res.get("announce")
+            if state is not None and state != "idle":
+                # t_98e495f0: the dot's answer now names the lane; a busy
+                # lane (capturing/playing) is a refusal-with-evidence — same
+                # honest-skip contract as a transport failure, D-ANN-12.
+                _LOGGER.info("announce: nudge %s (attempt %d) answered lane busy: %s",
+                             node, attempt + 1, state)
+                await asyncio.sleep(self.ANN_NUDGE_DELAY_SECONDS)
+                continue
             _LOGGER.info("announce: nudge %s (attempt %d) accepted: %s", node, attempt + 1, state)
             return
         _LOGGER.warning("announce: target %s skipped after %d nudges (offline/busy, D-ANN-12)",
