@@ -15,6 +15,7 @@ import asyncio
 from typing import Any
 
 from custom_components.echolocal_dropin.const import RING_FLOOR_SECONDS
+from custom_components.echolocal_dropin.device_map import dot_for, session_sensor_for
 from custom_components.echolocal_dropin.runtime import DropInRuntime
 from custom_components.echolocal_dropin.state_machine import (
     CallError,
@@ -41,7 +42,7 @@ class FakeHass:
         self.jobs.append(args)
 
     async def async_call(self, domain: str, service: str, args: dict,
-                         blocking: bool = True) -> None:
+                         blocking: bool = True, **kw) -> None:
         raise NotImplementedError("override self.dial Behavior per test")
 
     async def async_add_executor_job(self, fn, *args):
@@ -49,12 +50,19 @@ class FakeHass:
 
 
 def make_runtime(dial_behavior) -> tuple[DropInRuntime, FakeHass]:
-    """Build a runtime over a fake hass; dial_behavior(service) -> None|raise."""
+    """Build a runtime over a fake hass; dial_behavior(service) -> None|raise.
+
+    A behavior returning None or a falsy value is treated as the dot's real
+    answer {"state": "ringing"} (all four call-lane actions answer dot-side);
+    a test wanting an EMPTY answer returns {} explicitly."""
     hass = FakeHass()
 
-    async def fake_call(domain, service, args, blocking=True):
-        hass.service_calls.append((domain, service, dict(args), blocking))
-        return dial_behavior(service, dict(args))
+    async def fake_call(domain, service, args, blocking=True, **kw):
+        hass.service_calls.append((domain, service, dict(args), blocking, kw))
+        res = dial_behavior(service, dict(args))
+        # None = no explicit answer scripted -> the dot's real answer;
+        # {} stays {} (it IS the undelivered/empty case under test).
+        return res if isinstance(res, dict) else {"state": "ringing"}
 
     hass.async_call = fake_call  # type: ignore[method-assign]
 
@@ -114,7 +122,7 @@ def test_failed_dial_transport_tears_down_session():
     # teardown-emitted jobs and check).
     drain(hass)
     drain(hass)
-    assert any(s.endswith("_end") for _, s, _, _ in hass.service_calls)
+    assert any(s.endswith("_end") for _, s, _, _, _ in hass.service_calls)
 
 
 def test_successful_dial_keeps_session_ringing():
@@ -193,3 +201,168 @@ def test_add_job_sync_error_also_tears_down():
     rt.machine.call("di-sync", Endpoint(LOUNGE, "little_lounge"), Endpoint(KIT, "kitchen"))
     assert "di-sync" not in rt.machine.sessions
     assert rt.machine.endpoint_state(LOUNGE) == "idle"
+
+
+# -- t_5c0b6869: missing/empty action response = UNDELIVERED ------------------
+
+
+class _States:
+    """hass.states stand-in with a per-entity state map."""
+
+    def __init__(self, states: dict[str, str]):
+        self._states = states
+
+    def get(self, entity_id: str):
+        value = self._states.get(entity_id)
+        if value is None:
+            return None
+        return type("S", (), {"state": value})()
+
+
+def make_runtime_with_states(dial_behavior, states: dict[str, str]):
+    rt, hass = make_runtime(dial_behavior)
+    hass.states = _States(states)  # type: ignore[method-assign]
+    return rt, hass
+
+
+def test_call_lane_requests_return_response():
+    """Every call-lane action must ask for the dot's answer: with HA
+    discarding ResponseData a vanished action was indistinguishable from a
+    delivered one (the 30s 'Timeout waiting for response' surfaced long
+    after the fact)."""
+    import asyncio as _asyncio
+
+    hass = FakeHass()
+    seen: dict[str, Any] = {}
+
+    async def spy(domain, service, data, blocking=True, **kw):
+        seen.update(domain=domain, service=service, blocking=blocking,
+                    return_response=kw.get("return_response"))
+        return {"state": "ringing"}
+
+    hass.async_call = spy  # type: ignore[method-assign]
+    rt, _ = make_runtime(seen.setdefault)  # unused behavior; spy handles calls
+    rt.hass = hass  # type: ignore[assignment]
+    rt._dot_action(LOUNGE, "dropin_dial", {"session": "di-rr", "caller": KIT},
+                   session_id="di-rr")
+    loop = _asyncio.new_event_loop()
+    try:
+        while hass.jobs:
+            jobs, hass.jobs = hass.jobs, []
+            for fn, *argv in jobs:
+                coro = fn(*argv)
+                if _asyncio.iscoroutine(coro):
+                    loop.run_until_complete(coro)
+    finally:
+        loop.close()
+    assert seen["return_response"] is True, "answer must be requested"
+    assert seen["blocking"] is True
+
+
+def test_empty_dial_response_is_undelivered_and_tears_down():
+    """A dial that answers NOTHING (stale link after a dot reboot) must be
+    treated like a failed dial: reap the ringing session now."""
+    rt, hass = make_runtime_with_states(lambda service, args: {}, {})
+
+    rt.machine.call("di-empty", Endpoint(LOUNGE, "little_lounge"), Endpoint(KIT, "kitchen"))
+    drain(hass)
+
+    assert "di-empty" not in rt.machine.sessions, \
+        "empty dial answer = undelivered ring = torn down"
+    assert rt.machine.endpoint_state(LOUNGE) == "idle"
+    assert rt.machine.endpoint_state(KIT) == "idle"
+
+
+def test_state_answer_counts_as_delivered():
+    """The dot's {"state": ...} answer (Answers: true on all four call-lane
+    actions) is a delivery confirmation — session must stay ringing."""
+    rt, hass = make_runtime(lambda service, args: None)  # fake -> {"state": "ringing"}
+
+    rt.machine.call("di-ans", Endpoint(LOUNGE, "little_lounge"), Endpoint(KIT, "kitchen"))
+    drain(hass)
+    assert "di-ans" in rt.machine.sessions
+    assert rt.machine.endpoint_state(KIT) == "ringing"
+
+
+def test_undelivered_end_retried_while_sensor_still_in_call(caplog, monkeypatch):
+    """An undelivered dropin_end gets a bounded retry (2 tries, 2s apart)
+    ONLY while the dot's session sensor still paints an in-call state."""
+    import custom_components.echolocal_dropin.runtime as rt_mod
+    monkeypatch.setattr(rt_mod.asyncio, "sleep", _async_noop)
+    calls: list[str] = []
+    rt, hass = make_runtime_with_states(
+        lambda service, args: calls.append(service) or {},
+        {session_sensor_for(LOUNGE): "in-call"},
+    )
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(rt._dot_action_async(
+            f"{dot_for(LOUNGE)['node']}_dropin_end", {"reason": "hangup"},
+            "di-end", LOUNGE,
+        ))
+    finally:
+        loop.close()
+
+    assert len(calls) == 1 + rt.DOT_END_RETRIES, \
+        f"initial + {rt.DOT_END_RETRIES} retries expected, got {len(calls)}"
+    assert "UNDELIVERED after 2 retries" in caplog.text
+
+
+async def _async_noop(_delay):
+    return None
+
+
+def test_undelivered_end_not_retried_once_sensor_idle(monkeypatch, caplog):
+    """If the dot's sensor already paints idle/unknown, the end is moot —
+    no retry (the retry loop exits before firing again)."""
+    import logging
+    caplog.set_level(logging.INFO)
+    import custom_components.echolocal_dropin.runtime as rt_mod
+    monkeypatch.setattr(rt_mod.asyncio, "sleep", _async_noop)
+    calls: list[str] = []
+    rt, hass = make_runtime_with_states(
+        lambda service, args: calls.append(service) or {},
+        {session_sensor_for(LOUNGE): "idle"},
+    )
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(rt._dot_action_async(
+            f"{dot_for(LOUNGE)['node']}_dropin_end", {"reason": "hangup"},
+            "di-idle", LOUNGE,
+        ))
+    finally:
+        loop.close()
+
+    assert len(calls) == 1, "sensor idle -> no retry"
+    assert "no retry needed" in caplog.text
+
+
+def test_undelivered_end_retry_delivers_and_stops(monkeypatch, caplog):
+    """Retry 1 delivers -> the second retry never fires."""
+    import logging
+    caplog.set_level(logging.INFO)
+    import custom_components.echolocal_dropin.runtime as rt_mod
+    monkeypatch.setattr(rt_mod.asyncio, "sleep", _async_noop)
+    state = {"n": 0}
+
+    def behavior(service, args):
+        state["n"] += 1
+        return {} if state["n"] == 1 else {"state": "idle"}
+
+    rt, hass = make_runtime_with_states(
+        behavior, {session_sensor_for(LOUNGE): "in-call"},
+    )
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(rt._dot_action_async(
+            f"{dot_for(LOUNGE)['node']}_dropin_end", {"reason": "hangup"},
+            "di-re", LOUNGE,
+        ))
+    finally:
+        loop.close()
+
+    assert state["n"] == 2, "stop after the retry that delivers"
+    assert "delivered on retry 1" in caplog.text

@@ -470,6 +470,10 @@ class DropInRuntime:
             "transport": self._transport(data),
         }
 
+    # t_5c0b6869: call-lane undelivered handling — dropin_end retry budget.
+    DOT_END_RETRIES = 2
+    DOT_END_RETRY_DELAY_SECONDS = 2.0
+
     def _dot_action(self, device_id: str, action: str, args: dict[str, str],
                     session_id: str | None = None) -> None:
         """Invoke an ESPHome user-defined action on one dot over its existing
@@ -488,20 +492,99 @@ class DropInRuntime:
             # The state machine emits from SyncWorker threads; service calls
             # must resolve hass + the esphome dynamic-action registry on the
             # loop thread (async_get_hass thread-check otherwise throws).
-            self.hass.add_job(self._dot_action_async, service, args, session_id)
+            # device_id rides along for the undelivered path (t_5c0b6869):
+            # the dropin_end retry must re-check that dot's session sensor.
+            self.hass.add_job(self._dot_action_async, service, args,
+                              session_id, device_id)
         except Exception as err:  # noqa: BLE001 — transport must never break the machine
             _LOGGER.warning("drop-in dot action %s failed: %s", service, err)
             self._teardown_failed_ring(action, session_id, err)
 
     async def _dot_action_async(self, service: str, args: dict[str, str],
-                                session_id: str | None = None) -> None:
+                                session_id: str | None = None,
+                                device_id: str | None = None) -> None:
+        """One call-lane action, WITH the dot's answer (t_5c0b6869).
+
+        All four call-lane actions declare Answers: true dot-side (each Run
+        returns {"state": ...}), so the call requests return_response=True:
+        a missing/empty response means the action vanished into a stale
+        aioesphomeapi link (dot rebooted mid-call — the 19 Oct lounge warm
+        boot held a dead connection while HA awaited with blocking=True, so
+        the real failure only surfaced 30s later as a response timeout). The
+        response handling keeps the previous teardown contract: a failed DIAL
+        still tears down the ringing session via _teardown_failed_ring; an
+        undelivered dropin_end gets a short bounded retry while the dot's
+        sensor still paints in-call; everything else only warns.
+        """
         try:
             # blocking=True surfaces the transport error (APIConnectionError
             # etc.) here instead of HA's service-execution error log.
-            await self.hass.services.async_call("esphome", service, args, blocking=True)
+            res = await self.hass.services.async_call(
+                "esphome", service, args, blocking=True, return_response=True,
+            )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("drop-in dot action esphome.%s failed: %s", service, err)
             self._teardown_failed_ring(service, session_id, err)
+            return
+        if isinstance(res, dict) and res:
+            _LOGGER.info("drop-in dot action esphome.%s answered: %s", service, res)
+            return
+        # Missing/empty answer -> UNDELIVERED (t_5c0b6869 finding 2).
+        err = RuntimeError(
+            f"no response from esphome.{service} — action may be undelivered "
+            "(stale native-API link after a dot reboot?)"
+        )
+        _LOGGER.warning("drop-in dot action esphome.%s UNDELIVERED: %s", service, err)
+        if str(service).endswith("_dial"):
+            self._teardown_failed_ring(service, session_id, err)
+        elif str(service).endswith("_end") and device_id is not None:
+            await self._retry_dropin_end(device_id, service, args, session_id)
+
+    async def _retry_dropin_end(self, device_id: str, service: str,
+                                args: dict[str, str],
+                                session_id: str | None = None) -> None:
+        """Bounded retry for an undelivered dropin_end (t_5c0b6869).
+
+        The dot may still be mid-reboot when the teardown lands; 1-2 quick
+        retries (2s apart) usually catch the connection coming back. Each
+        retry only fires while the dot's session sensor still shows an
+        in-call state — idle/unknown means the end either landed or the call
+        is already gone, and retrying would just churn the log.
+        """
+        sensor = session_sensor_for(device_id)
+        if sensor is None:
+            return
+        for attempt in range(1, self.DOT_END_RETRIES + 1):
+            await asyncio.sleep(self.DOT_END_RETRY_DELAY_SECONDS)
+            state = getattr(self.hass.states.get(sensor), "state", None)
+            if state not in DOT_SESSION_ACCEPTED:
+                _LOGGER.info(
+                    "drop-in dot action esphome.%s: %s sensor %s is %s — no retry needed",
+                    service, device_id, sensor, state,
+                )
+                return
+            _LOGGER.warning(
+                "drop-in dot action esphome.%s retry %d/%d (%s still in-call: %s)",
+                service, attempt, self.DOT_END_RETRIES, device_id, state,
+            )
+            try:
+                res = await self.hass.services.async_call(
+                    "esphome", service, args, blocking=True, return_response=True,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("drop-in dot action esphome.%s retry failed: %s",
+                                service, err)
+                res = None
+            if isinstance(res, dict) and res:
+                _LOGGER.info("drop-in dot action esphome.%s delivered on retry %d: %s",
+                             service, attempt, res)
+                return
+        _LOGGER.error(
+            "drop-in dot action esphome.%s UNDELIVERED after %d retries "
+            "(device=%s session=%s) — dot-side session may linger until its "
+            "own end/30-min reaper", service, self.DOT_END_RETRIES, device_id,
+            session_id,
+        )
 
     def _teardown_failed_ring(self, service: str, session_id: str | None,
                               err: Exception) -> None:

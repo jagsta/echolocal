@@ -52,7 +52,7 @@ class FakeHass:
         self.jobs.append(args)
 
     async def async_call(self, domain: str, service: str, args: dict,
-                         blocking: bool = True) -> None:
+                         blocking: bool = True, **kw) -> None:
         self.service_calls.append((domain, service, dict(args), blocking))
 
     async def async_add_executor_job(self, fn, *args):
