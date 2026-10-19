@@ -452,10 +452,16 @@ func (a *announcer) serve(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 
 	if state == annIdle && cap.at.IsZero() {
+		// D-ANN-18d: the lane-state header lets HA tell "still recording"
+		// from "the capture aborted / nothing in flight" — the second one
+		// must NOT trigger the D-ANN-12 nudge-anyway (19 Oct live: the
+		// receiver lit up for a slot that would never exist).
+		w.Header().Set("X-Announce-State", string(annIdle))
 		http.Error(w, "no announcement", http.StatusNotFound)
 		return
 	}
 	if state != annCaptured || len(cap.pcm) == 0 {
+		w.Header().Set("X-Announce-State", string(state))
 		http.Error(w, "announcement is being recorded", http.StatusNotFound)
 		return
 	}

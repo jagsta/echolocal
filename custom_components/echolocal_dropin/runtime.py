@@ -1162,7 +1162,15 @@ class DropInRuntime:
             targets = self._resolve_announce_targets(dict(call.data))
         except CallError as err:
             raise HomeAssistantError(str(err)) from err
-        self.hass.async_create_task(self._run_announce(dict(call.data), targets))
+        # D-ANN-18d (19 Oct live): overlapping orchestrations raced each
+        # other's nudges — the previous run's 30s poll expired mid-capture
+        # of the NEWER announce and nudged targets into a slot that did not
+        # exist yet. One orchestration per integration: supersede cancels.
+        prev = getattr(self, "_announce_task", None)
+        if prev is not None and not prev.done():
+            _LOGGER.info("announce: superseding an in-flight orchestration")
+            prev.cancel()
+        self._announce_task = self.hass.async_create_task(self._run_announce(dict(call.data), targets))
 
     async def _run_announce(self, data: dict[str, Any], targets: list[str]) -> None:
         caller_device = str(data["caller_device"])
@@ -1184,17 +1192,21 @@ class DropInRuntime:
         if origin_host is None:
             _LOGGER.warning("announce: no LAN host for the origin dot; cannot observe capture")
             return
-        # 2. Wait for capture completion (D-ANN-12 shape): poll the origin's
-        # serve endpoint — a 200 carries X-Announce-Id; a 404 while the dot
-        # logs "capturing" is the recording state, a 404 with no lane is the
-        # capture having bailed. Either way HA stops waiting at the poll cap.
-        cap_id = await self._await_capture(origin_host)
-        if cap_id is None:
+        # 2. Wait for capture completion (D-ANN-12 shape). D-ANN-18d: the
+        # poll is now abort-aware — the dot's 404 carries X-Announce-State;
+        # an 'idle' lane means the capture ABORTED (never spoke, discard)
+        # and the targets must NOT be nudged at all (live 19 Oct: the
+        # receiver lit up + chimed for a slot that would never exist). A
+        # 30s timeout is also no longer nudged-anyway: with the current
+        # capture clock (~20s worst case) a timeout means something is
+        # honestly wrong — nudge-into-darkness is never the right answer.
+        cap_id, state = await self._await_capture(origin_host)
+        if state != "captured":
             _LOGGER.warning(
-                "announce: no finished capture from %s within %.0fs; nudging targets anyway "
-                "(their own fetch retry/skip takes it from here, D-ANN-12)",
-                origin_host, self.ANN_CAPTURE_WAIT_SECONDS,
+                "announce: capture from %s %s; not nudging targets (nothing published)",
+                origin_host, state,
             )
+            return
         # 3. Nudge every target (D-ANN-2/12/13). async_call EVERYWHERE
         # (t_650b2f99): sync service calls reintroduce the event-loop freeze
         # that fail-fast tests pin. The play target is the RECEIVER dot's
@@ -1236,33 +1248,39 @@ class DropInRuntime:
             _LOGGER.warning("esphome.%s to %s failed: %s", service, facts["node"], err)
             return {"announce_ok": False, "error": str(err)}
 
-    async def _await_capture(self, origin_host: str | None) -> str | None:
-        """Poll the origin's GET /announce/capture until it answers 200
-        (capture done; the X-Announce-Id is returned for logging) or the
-        budget expires (None). Transport errors and 404 (recording/bailed)
-        are retried on the poll pace; a 410 (expired) ends the wait early —
-        the capture will never come back."""
+    async def _await_capture(self, origin_host: str | None) -> tuple[str | None, str]:
+        """Poll the origin's GET /announce/capture until the capture
+        resolves, returning (capture_id, state): state captured | aborted |
+        gone | timeout. A 200 answers captured (the X-Announce-Id); a 404
+        whose X-Announce-State is 'idle' means the lane is empty — the
+        capture aborted or was never kicked (D-ANN-18d); any other status
+        keeps polling on the poll pace until the budget expires."""
         if not origin_host:
-            return None
+            return None, "aborted"
         getter = self._announce_probe_getter()
         if getter is None:
             _LOGGER.warning("announce: no HTTP session available; capture poll skipped")
-            return None
+            return None, "aborted"
         url = f"https://{origin_host}:{DOT_ANNOUNCE_PORT}{DOT_ANNOUNCE_PATH}"
         deadline = asyncio.get_running_loop().time() + self.ANN_CAPTURE_WAIT_SECONDS
         while asyncio.get_running_loop().time() < deadline:
-            status, cap_id = await getter(url)
+            status, cap_id, lane = await getter(url)
             if status == 200:
-                return cap_id
+                return cap_id, "captured"
             if status == 410:  # gone: the window closed with no nudge
                 _LOGGER.warning("announce: capture from %s already expired (410)", origin_host)
-                return None
+                return None, "gone"
+            if status == 404 and lane == "idle":
+                # D-ANN-18d: the dot's lane is empty — the capture aborted
+                # (never-spoke / under-speech / discarded). Hopeless.
+                return None, "aborted"
             # 404 while recording, or anything transient: keep polling.
             await asyncio.sleep(self.ANN_CAPTURE_POLL_SECONDS)
-        return None
+        return None, "timeout"
 
     def _announce_probe_getter(self):
-        """The (url -> (status, x-announce-id)) probe used by _await_capture.
+        """The (url -> (status, x-announce-id, x-announce-state)) probe used
+        by _await_capture.
         Production: the shared aiohttp session with TLS verify OFF (the dots
         serve the D-CERT staged bundle, same posture as the dot-to-dot fetch,
         p2p_offer.go peerDotClient). Import is lazy + guarded: the full
@@ -1270,8 +1288,8 @@ class DropInRuntime:
         which the unit-test venv does not carry — tests inject their own
         getter via _announce_probe instead."""
         probe = getattr(self, "_announce_probe", None)
-        if probe is not None:
-            return probe  # type: ignore[return-value]
+        if callable(probe):
+            return probe
         try:
             from homeassistant.helpers.aiohttp_client import (
                 async_get_clientsession,
@@ -1279,15 +1297,15 @@ class DropInRuntime:
 
             session = async_get_clientsession(self.hass, verify_ssl=False)
 
-            async def probe(url: str) -> tuple[int, str | None]:
+            async def probe(url: str) -> tuple[int, str | None, str | None]:
                 try:
                     async with session.get(url) as resp:
                         if resp.status == 200:
-                            return 200, resp.headers.get("X-Announce-Id")
-                        return resp.status, None
+                            return 200, resp.headers.get("X-Announce-Id"), resp.headers.get("X-Announce-State")
+                        return resp.status, None, resp.headers.get("X-Announce-State")
                 except Exception as err:  # noqa: BLE001 — origin may be mid-restart
                     _LOGGER.debug("announce capture poll: %s", err)
-                    return 0, None
+                    return 0, None, None
 
             self._announce_probe = probe
             return probe

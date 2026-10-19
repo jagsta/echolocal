@@ -118,7 +118,7 @@ def test_announce_flow_kicks_origin_then_nudges_targets():
     rt, _hass, calls = make_announce_runtime()
 
     async def instant_capture(origin_host):
-        return "ann-test"
+        return "ann-test", "captured"
 
     rt._await_capture = instant_capture  # type: ignore[method-assign]
     loop = asyncio.new_event_loop()
@@ -146,16 +146,16 @@ def test_announce_probe_seam_polled():
         seen_urls.append(url)
         seq["n"] += 1
         if seq["n"] < 3:
-            return 404, None  # still recording
-        return 200, "ann-42"
+            return 404, None, "capturing"  # still recording
+        return 200, "ann-42", None
 
     rt._announce_probe = probe  # type: ignore[attr-defined]
     loop = asyncio.new_event_loop()
     try:
-        cap = loop.run_until_complete(rt._await_capture("lounge-dot.jagbains.org"))
+        cap, state = loop.run_until_complete(rt._await_capture("lounge-dot.jagbains.org"))
     finally:
         loop.close()
-    assert cap == "ann-42"
+    assert cap == "ann-42" and state == "captured"
     assert seen_urls and seen_urls[0] == (
         f"https://lounge-dot.jagbains.org:{DOT_ANNOUNCE_PORT}{DOT_ANNOUNCE_PATH}"
     )
@@ -163,11 +163,12 @@ def test_announce_probe_seam_polled():
 
     # 410: one probe, stop immediately.
     async def gone(url: str):
-        return 410, None
+        return 410, None, None
     rt._announce_probe = gone  # type: ignore[attr-defined]
     loop = asyncio.new_event_loop()
     try:
-        assert loop.run_until_complete(rt._await_capture("lounge-dot.jagbains.org")) is None
+        cap, state = loop.run_until_complete(rt._await_capture("lounge-dot.jagbains.org"))
+        assert cap is None and state == "gone"
     finally:
         loop.close()
 
@@ -311,3 +312,28 @@ def test_nudge_busy_outcome_still_retried(caplog):
             loop.close()
     assert answers == []
     assert "answered lane busy: playing" in caplog.text
+
+
+def test_aborted_capture_nudges_nothing(caplog):
+    """D-ANN-18d (19 Oct live): a capture that ABORTS (dot lane idle, no
+    slot) must NOT nudge targets — the receiver lit up + chimed for a slot
+    that would never exist. Timeout is also a no-nudge now: honest stop."""
+    for state in ("aborted", "timeout"):
+        rt, _hass, calls = make_announce_runtime()
+
+        async def dead_capture(origin_host):
+            return None, state
+
+        rt._await_capture = dead_capture  # type: ignore[method-assign]
+        with caplog.at_level("INFO"):
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(rt._run_announce(
+                    {"caller_device": LOUNGE, "target_room": ""}, [KIT]))
+            finally:
+                loop.close()
+        esphome_calls = [(svc, dict(d)) for dom, svc, d in calls if dom == "esphome"]
+        assert esphome_calls == [
+            ("lounge_dropin_announce", {"room": ""}),
+        ], f"{state}: nudges fired with no published capture"
+        assert f"capture from lounge-dot.jagbains.org {state}" in caplog.text
