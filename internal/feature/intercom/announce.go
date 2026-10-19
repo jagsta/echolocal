@@ -165,6 +165,8 @@ type announcer struct {
 	turnFn func() bool   // assist turn open? nil = never open (tests, no voice loop)
 	callFn func() string // "idle"|"ringing"|"in-call"; nil = idle (tests)
 	setLED func(on bool) // purple on/off around playback (D-ANN-11)
+
+	captureLED func(on bool) // listen-blue on/off around the capture window (D-ANN-16)
 	notify func(state announceState)
 }
 
@@ -269,6 +271,15 @@ func (a *announcer) runCapture(room string) {
 	a.mu.Unlock()
 	a.suspend(true)
 	defer a.suspend(false)
+	// D-ANN-16 (19 Oct live witness): the wake/listen blue dies with the
+	// assist turn, and a bare record() leaves the ring DARK for the whole
+	// window — the dot is recording with no visual acknowledgement. Claim the
+	// listen-blue for the window (the same claim discipline as the receiver's
+	// purple, D-ANN-11); every exit path releases via defer.
+	if a.captureLED != nil {
+		a.captureLED(true)
+		defer a.captureLED(false)
+	}
 
 	pcm, why, heard := a.record()
 	if lane := a.callLane(); lane != "idle" && lane != "ringing" {

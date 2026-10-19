@@ -246,6 +246,57 @@ func TestCaptureNeverSpokeAbortsTheLane(t *testing.T) {
 	}
 }
 
+// TestCaptureClaimsAndReleasesTheBlueLED pins D-ANN-16: runCapture claims the
+// listen-blue at record start and every exit path (abort and success) releases
+// it — the ring must not go dark, and must not stay claimed, during a window.
+func TestCaptureClaimsAndReleasesTheBlueLED(t *testing.T) {
+	claims := 0
+	run := func(endInAbort bool) {
+		a, _ := announceFixture(t)
+		a.notify = func(announceState) {}
+		a.captureLED = func(on bool) {
+			if on {
+				claims++
+			} else {
+				claims--
+			}
+		}
+		if endInAbort {
+			// never-spoke: 6s of dead air past the lead-in.
+			frames := framesOf(announceRecordLeadInFrames+announceDeadSilenceFrames+10, 0)
+			a.listen = func() (<-chan []int16, func()) { return frames, func() {} }
+		} else {
+			// capture succeeds: min speech, then a full trailing lull.
+			n := announceRecordLeadInFrames + announceMinSpokenFrames + 10
+			total := n + announceBailSilenceFrames + 10
+			merged := make(chan []int16, total+1)
+			loud := make([]int16, 320)
+			for i := range loud {
+				loud[i] = 3000
+			}
+			silent := make([]int16, 320)
+			for i := 0; i < n; i++ {
+				merged <- loud
+			}
+			for range announceBailSilenceFrames + 10 {
+				merged <- silent
+			}
+			// No close: the trailing-lull bail fires before the supply
+			// runs out; the hard timer backstops a wedged supply anyway.
+			a.listen = func() (<-chan []int16, func()) { return merged, func() {} }
+		}
+		a.mu.Lock()
+		a.state = annCapturing
+		a.mu.Unlock()
+		a.runCapture("kitchen")
+	}
+	run(true)
+	run(false)
+	if claims != 0 {
+		t.Fatalf("capture LED claim leaked: balance %d after abort+success paths", claims)
+	}
+}
+
 // TestCaptureSupersedesAFinishedSlot pins the 19 Oct broadcast fix: a new
 // Capture over a COMPLETED annCaptured slot proceeds (retires it) — the D-ANN
 // slot is 'one, overwritten by the next capture'; only in-flight states

@@ -78,6 +78,16 @@ func (i *Intercom) wireAnnounce() {
 			i.led.Clear()
 		}
 	}
+	// D-ANN-16: the CAPTURE side holds the wake/listen blue for its window —
+	// stock-Alexa reading (t_05fc05ad): listening = blue. BlueChase is
+	// palette-locked, so the base colour is ignored.
+	a.captureLED = func(on bool) {
+		if on {
+			i.led.Play(led.EffectBlueChase, led.Color{})
+		} else {
+			i.led.Clear()
+		}
+	}
 
 	// BOTH suppression seams get the announce clause COMPOSED with the call
 	// lane's (added here; the call lane's own registrations stay untouched).
