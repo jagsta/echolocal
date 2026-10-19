@@ -137,3 +137,45 @@ orchestration stay HA-owned, per the same split as D-P2P-2.
   survived, err.log wrapper armed). Root cause still unidentified — treat
   every future voice announce as a potential reproduction; capture stderr
   stays armed on lounge.
+
+## 19 Oct (session 3) — capture UX rebuild (D-ANN-18 series)
+
+Witnesses (Jag) + commits 2d7cf79…dcb05f6. Constraint found by evidence:
+the dot's speaker drains ~2s past the pipeline "turn ended" (HA TTS
+chunking + the dot's media queue), the canceller zero-suppresses the feed
+the whole time (level-based on the loopback ref; only a 250ms hold tail),
+and words spoken INTO that span are destroyed feed-side (live: "Hello
+Jasmine" fully absent; NOT a gain problem — ch2 was bleed-dominated).
+Raw-mic capture was PROPOSED and DECLINED (Jag: thresholds too coarse on
+the raw feed, speculative trade-offs).
+
+- **D-ANN-18: the capture go-cue is the settle moment.** Dark while the
+  drain runs, listen-effect + tick AT the first ≥200ms contiguous quiet
+  inside the first 6s (announceSettleQuietFrames/SpanFrames). A capture
+  with no bleed settles ~200ms in — the cue is effectively instant.
+- **D-ANN-18b: the published capture STARTS at settle.** Pre-settle
+  frames drive the bail counters but never publish — waiting for the go
+  cue no longer bakes ~2s of residue into the recording head.
+- **D-ANN-18c: the settle counts lead-in frames too** (its own contiguous
+  counter) — the lead-in keeps guarding only the bail counters.
+- **D-ANN-18d (prototype 1): silent prompt + purple capture.** The
+  automation responds with an EMPTY conversation response ('') — the
+  prompt TTS was itself the reason for the ~3s lag chain (pipeline close
+  ∥ speaker drain). Capture LED = PURPLE (EffectAnnounce, same family as
+  the receiver's playback) to disambiguate intent-blue from action.
+- **The go-tick: 80ms ToneVolume at settle** (prototype 2, ACCEPTED by
+  witness) — sound+light go-cue, no TTS drain bought back; tick rides the
+  published span (~2 frames).
+- **D-ANN-12a: nudge-anyway is DEAD.** A 404 whose X-Announce-State is
+  'idle' (and any poll timeout) nudges NOTHING — the receiver must never
+  light for a slot that will not exist (19 Oct live, twice). The dot's
+  serve() publishes the header; HA's _await_capture returns
+  (id, captured|aborted|gone|timeout).
+- **Single-flight orchestration**: a second echolocal_dropin.announce
+  call cancels the previous in-flight one — its 30s poll used to expire
+  mid-capture of the newer announce and nudge anyway (overlapping-run
+  race, caught in the same live session).
+- Residual known edge: an announcement totalling <50 loud frames (<1s)
+  aborts by design (min-spoken gate) — and the HEARD<50 case also blocks
+  the trailing bail, so the lane holds the full 15s window before the
+  abort. Witnessed heard=49. Acceptable for now; revisit if it bites.
