@@ -73,3 +73,37 @@ orchestration stay HA-owned, per the same split as D-P2P-2.
   belongs in the E2E card.
 - Any new intercom config field must land WITH its PairingTable ctl row in
   the same card (registration-gap gotcha).
+## Addenda — 19 Oct live-witness amendments (E2E session)
+
+- **D-ANN-3a: bail counters are CONTIGUOUS, not cumulative.** The AEC sounds
+  the chime + "Speak now." tail as digital silence after the lead-in
+  (measured: literal zero frames); a cumulative counter let those frames
+  fire both bails — dead-silence killed captures ~1.5s after the prompt
+  (every human test 'never spoke' 4.5s) and trailing-silence cut the first
+  breath pause mid-sentence. Dead-air bail = **6s contiguous** (heard==0),
+  trailing bail = **3s contiguous** (Jag ruling 19 Oct: 1.5s was too
+  aggressive and cut the message), reset on any post-lead-in speech frame.
+- **D-ANN-3b: a capture with no meaningful speech ABORTS the lane** (never
+  promoted to annCaptured). Publishing a silence-only slot wedged the lane
+  for minutes: nothing fetches it, every later announce refused 'lane busy',
+  receivers got hopeless 410s. Abort → annIdle → receivers get a clean 404.
+- **D-ANN-3c: Capture SUPERSEDES a completed annCaptured slot.** One slot,
+  overwritten by the next capture — the old serve-lazy-TTL-only clearing
+  meant a second announce inside the 2-min TTL was refused AND the
+  orchestration still re-played the PREVIOUS capture. In-flight states
+  (annCapturing, annPlaying) still refuse.
+- **D-ANN-11a: purple + the D-ANN-10 suspension span PLAYBACK, not just the
+  play call.** The playback sink (speaker PlayStream) is fire-and-forget, so
+  runPlay must hold for capture-duration + 500ms tail before releasing LED,
+  suspension and lane — a bare return released all three at playback START
+  (witnessed: purple extinguished during playback).
+- **D-ANN-10a: LED/suspend/state release order on the receiver is explicit
+  and idempotent** — early-return paths (fetch fail) release immediately and
+  the deferred releases re-fire as no-ops after the hold.
+- **Diagnostic recipe that cracked the mic-silence question** (record it
+  once, it cost probes 1-7): `ctl audio record echo <secs> <path>` records
+  three channels — center mic, loopback ref, what LISTENERS got — pull the
+  WAV and diff per-frame RMS; `ctl audio cancel` gives canceller running/
+  learning/ERLE. A silent LEVELED stream with a healthy mic peak = the AEC
+  sounding path doing its job, not a broken mic — feed that conclusion into
+  the counter design, never into a mic-hardware debug loop.
