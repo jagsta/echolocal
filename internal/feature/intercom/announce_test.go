@@ -647,3 +647,79 @@ func dotGetBodyResponse(status int, body []byte) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// playActionFixture builds a minimal Intercom whose announce lane is fully
+// seam-injected, for the dropin_play answer-contract tests (t_eb8314c4).
+type playAnswerFixture struct {
+	i   *Intercom
+	a   *announcer
+	ans map[string]any
+}
+
+func playFixture(t *testing.T) (*Intercom, *announcer) {
+	t.Helper()
+	i := &Intercom{session: New(time.Minute)}
+	i.wireAnnounce()
+	i.ann.callFn = func() string { return "idle" }
+	i.ann.fetch = func(string) ([]byte, error) { return make([]byte, 640), nil }
+	return i, &i.ann
+}
+
+// TestPlayAnswerNamesTheOutcome pins t_eb8314c4's contract: dropin_play's
+// answer carries accepted/reason naming the outcome, with the legacy
+// announce lane-state key beside them.
+func TestPlayAnswerNamesTheOutcome(t *testing.T) {
+	i, _ := playFixture(t)
+
+	// Idle: accepted.
+	ans := i.PlayFrom("lounge-dot")
+	if ans["accepted"] != true || ans["reason"] != "accepted" {
+		t.Fatalf("idle answer %v, want accepted/reason=accepted", ans)
+	}
+	if _, ok := ans["announce"]; !ok {
+		t.Fatalf("answer missing the legacy announce key: %v", ans)
+	}
+	// In-call: the skip is answered IN THE SYNC BRANCH (t_98e495f0 f1) —
+	// the lane never reaches playing, so the answer must not read idle.
+	i.ann.callFn = func() string { return "in-call" }
+	ans = i.PlayFrom("lounge-dot")
+	if ans["accepted"] != false {
+		t.Fatalf("in-call answer accepted=%v, want false", ans["accepted"])
+	}
+	if ans["reason"] != "skipped-in-call" {
+		t.Fatalf("in-call answer reason=%v, want skipped-in-call", ans["reason"])
+	}
+}
+
+// TestPlayAnswerLaneBusy pins the busy half: capturing/playing lanes are
+// refused with the lane state as the reason.
+func TestPlayAnswerLaneBusy(t *testing.T) {
+	for _, busy := range []announceState{annCapturing, annPlaying} {
+		i, a := playFixture(t)
+		a.state = busy
+		ans := i.PlayFrom("lounge-dot")
+		if ans["accepted"] != false {
+			t.Fatalf("%s: accepted=%v, want false", busy, ans["accepted"])
+		}
+		if ans["reason"] != string(busy) {
+			t.Fatalf("%s: reason=%v, want %s", busy, ans["reason"], busy)
+		}
+	}
+}
+
+// TestPlayAnswerDelayedWhileRinging pins the ringing half: the play is
+// deferred goroutine-side and the sync answer names it "delayed" (the final
+// played/never-resolved outcome is logged async, not answerable in the
+// read-loop's sync window).
+func TestPlayAnswerDelayedWhileRinging(t *testing.T) {
+	i, a := playFixture(t)
+	lane := atomic.Value{}
+	lane.Store("ringing")
+	a.callFn = func() string { return lane.Load().(string) }
+	a.play = func([]int16) { lane.Store("idle") } // pretend the call resolved
+
+	ans := i.PlayFrom("lounge-dot")
+	if ans["accepted"] != false || ans["reason"] != "delayed" {
+		t.Fatalf("ringing answer %v, want accepted=false reason=delayed", ans)
+	}
+}

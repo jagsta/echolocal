@@ -101,10 +101,17 @@ func (i *Intercom) CaptureWithRoom(room string) map[string]any {
 	return map[string]any{"announce": string(i.ann.now())}
 }
 
-// PlayFrom is the dropin_play action body.
+// PlayFrom is the dropin_play action body. The answer names the OUTCOME
+// (t_eb8314c4): accepted/reason from the sync branch points, with the legacy
+// "announce" lane-state key kept alongside so HA's busy-lane logging (and any
+// older dot-side contract readers) keep working.
 func (i *Intercom) PlayFrom(origin string) map[string]any {
-	i.Play(origin)
-	return map[string]any{"announce": string(i.ann.now())}
+	accepted, reason := i.Play(origin)
+	return map[string]any{
+		"accepted": accepted,
+		"reason":   reason,
+		"announce": string(i.ann.now()), // legacy lane-state key (t_98e495f0 contract)
+	}
 }
 
 // wireActionsAnnounce appends the two announce actions to the intercom action

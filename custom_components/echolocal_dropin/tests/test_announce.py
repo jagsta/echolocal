@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 import yaml
 
 from custom_components.echolocal_dropin.const import (
@@ -244,3 +246,68 @@ def test_action_call_carries_return_response():
         loop.close()
     assert seen["return_response"] is True and seen["blocking"] is True
     assert res == {"announce": "idle"}
+
+def test_nudge_outcome_contract_accepted_skipped_delayed(caplog):
+    """t_eb8314c4: the dot's answer names the outcome — accepted:true is
+    delivery, accepted:false + skipped-in-call/delayed is the dot's own
+    verdict logged honestly (NO retry — a retry would race a deferred play
+    or re-skip a stable state), while a busy lane keeps the fb91741 retry."""
+    rt, _hass, _calls = make_announce_runtime()
+    rt.ANN_NUDGE_DELAY_SECONDS = 0.01
+
+    async def play(device_id, action, args):
+        return {"accepted": True, "reason": "accepted", "announce": "playing"}
+
+    rt._esphome_action = play  # type: ignore[method-assign]
+    with caplog.at_level("INFO"):
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(rt._nudge_target(KIT, "lounge-dot.jagbains.org"))
+        finally:
+            loop.close()
+    assert "accepted: accepted" in caplog.text
+
+
+@pytest.mark.parametrize("reason", ["skipped-in-call", "delayed"])
+def test_nudge_dot_deferred_or_skipped_not_retried(caplog, reason):
+    rt, _hass, _calls = make_announce_runtime()
+    seen: list[dict] = []
+
+    async def play(device_id, action, args):
+        seen.append(args)
+        return {"accepted": False, "reason": reason, "announce": "idle"}
+
+    rt._esphome_action = play  # type: ignore[method-assign]
+    with caplog.at_level("INFO"):
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(rt._nudge_target(KIT, "lounge-dot.jagbains.org"))
+        finally:
+            loop.close()
+    assert len(seen) == 1, "the dot's named verdict must not be retried"
+    if reason == "delayed":
+        assert "deferred dot-side" in caplog.text
+    else:
+        assert "skipped by dot: skipped-in-call" in caplog.text
+
+
+def test_nudge_busy_outcome_still_retried(caplog):
+    """t_eb8314c4: busy lanes keep the retry (fb91741) even under the
+    accepted/reason contract."""
+    rt, _hass, _calls = make_announce_runtime()
+    rt.ANN_NUDGE_DELAY_SECONDS = 0.01
+    answers = [{"accepted": False, "reason": "playing", "announce": "playing"},
+               {"accepted": True, "reason": "accepted", "announce": "idle"}]
+
+    async def play(device_id, action, args):
+        return answers.pop(0)
+
+    rt._esphome_action = play  # type: ignore[method-assign]
+    with caplog.at_level("INFO"):
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(rt._nudge_target(KIT, "lounge-dot.jagbains.org"))
+        finally:
+            loop.close()
+    assert answers == []
+    assert "answered lane busy: playing" in caplog.text

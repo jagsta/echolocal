@@ -1209,7 +1209,11 @@ class DropInRuntime:
     async def _nudge_target(self, device_id: str, origin_host: str) -> None:
         """Nudge ONE receiver (D-ANN-12/13). The receiver's own lane guard
         skips in-call / delays ringing dot-side; HA's job is the offline
-        retry (quick, 3 tries) then an honest logged skip."""
+        retry (quick, 3 tries) then an honest logged skip.
+        t_eb8314c4: the answer names the OUTCOME via accepted/reason
+        (accepted | capturing | playing | skipped-in-call | delayed); an
+        older dot answers only the legacy announce lane key and we keep
+        reading it."""
         facts = dot_for(device_id)
         node = facts["node"]
         for attempt in range(self.ANN_NUDGE_ATTEMPTS):
@@ -1219,16 +1223,44 @@ class DropInRuntime:
                              node, res, attempt + 1, self.ANN_NUDGE_ATTEMPTS)
                 await asyncio.sleep(self.ANN_NUDGE_DELAY_SECONDS)
                 continue
-            state = res.get("announce")
-            if state is not None and state != "idle":
-                # t_98e495f0: the dot's answer now names the lane; a busy
-                # lane (capturing/playing) is a refusal-with-evidence — same
-                # honest-skip contract as a transport failure, D-ANN-12.
+            accepted = res.get("accepted")
+            reason = res.get("reason")
+            if accepted is None:
+                # Pre-t_eb8314c4 dot (legacy contract): only the lane key.
+                lane = res.get("announce")
+                if lane is None:
+                    _LOGGER.warning(
+                        "esphome.%s to %s answered with no lane state (%s) — "
+                        "delivery unverifiable", f"{node}_dropin_play", node, res)
+                    return
+                if lane != "idle":
+                    _LOGGER.info("announce: nudge %s (attempt %d) answered lane busy: %s",
+                                 node, attempt + 1, lane)
+                    await asyncio.sleep(self.ANN_NUDGE_DELAY_SECONDS)
+                    continue
+                _LOGGER.info("announce: nudge %s (attempt %d) accepted (legacy lane answer: idle)",
+                             node, attempt + 1)
+                return
+            if accepted:
+                _LOGGER.info("announce: nudge %s (attempt %d) accepted: %s",
+                             node, attempt + 1, reason)
+                return
+            if reason == "delayed":
+                # t_eb8314c4: the dot deferred the play (receiver ringing) and
+                # owns the outcome — it plays or logs the ring-never-resolved
+                # skip. No re-nudge: a retry would race the deferred play.
+                _LOGGER.info("announce: nudge %s (attempt %d) deferred dot-side "
+                             "(receiver ringing; the dot logs the final outcome)", node, attempt + 1)
+                return
+            if reason in ("capturing", "playing"):
                 _LOGGER.info("announce: nudge %s (attempt %d) answered lane busy: %s",
-                             node, attempt + 1, state)
+                             node, attempt + 1, reason)
                 await asyncio.sleep(self.ANN_NUDGE_DELAY_SECONDS)
                 continue
-            _LOGGER.info("announce: nudge %s (attempt %d) accepted: %s", node, attempt + 1, state)
+            # skipped-in-call (or any other named skip): the dot-side guard is
+            # authoritative; an honest logged skip, no retry.
+            _LOGGER.info("announce: nudge %s (attempt %d) skipped by dot: %s",
+                         node, attempt + 1, reason)
             return
         _LOGGER.warning("announce: target %s skipped after %d nudges (offline/busy, D-ANN-12)",
                         node, self.ANN_NUDGE_ATTEMPTS)

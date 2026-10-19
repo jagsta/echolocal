@@ -93,20 +93,55 @@ var (
 // spec's "~10s then skip".
 const annRetryDelay = announceFetchInterval
 
+// annOutcome reasons are the dropin_play answer's vocabulary (t_eb8314c4):
+// accepted | capturing | playing | skipped-in-call | delayed. The answer's
+// sync write happens in Play — the API read loop's synchronous window —
+// because the async skips' final outcomes (an in-call skip never promotes
+// the lane to playing; a ring that never resolves is a 30s-bound path) are
+// NOT answerable in time under conn.go's run-must-not-block contract.
+const (
+	annReasonAccepted       = "accepted"
+	annReasonSkippedInCall  = "skipped-in-call"
+	annReasonDelayedRinging = "delayed" // ringing: runPlay waits out the ring; the final played/skipped outcome is logged async
+	// "capturing"/"playing" come straight off the announce lane state; the
+	// sync branch also answers "ring-never-resolved"-class skips through
+	// that lane reading before anything async runs.
+)
+
 // Play is the dropin_play entry point on a RECEIVER dot: chime first
 // (D-ANN-9), then fetch + play with the assistant pipeline suspended
 // (D-ANN-10). The lane yields to the call lane first (D-ANN-13). It never
-// blocks its caller's read loop: playback runs on its own goroutine.
-func (i *Intercom) Play(origin string) {
+// blocks its caller's read loop: playback runs on its own goroutine. It
+// ANSWERS the outcome synchronously (accepted bool, reason string) from the
+// branch points it can decide right now — the in-call skip (checked HERE,
+// not in the goroutine, so the answer names it), a busy announce lane and
+// the ringing deferral; a plain acceptance is the idle case.
+func (i *Intercom) Play(origin string) (bool, string) {
 	a := &i.ann
-	switch s := a.now(); s {
-	case annIdle, annCaptured: // 'captured' = a serve slot is held; receiving is not contentions with it
-		_ = s
-	default:
-		slog.Warn("announce play refused: lane busy", "state", string(s), "origin", origin)
-		return
+	// D-ANN-13 sync half: an IN-CALL receiver skips. Read the call lane
+	// synchronously so the action answer carries "skipped-in-call" instead
+	// of an idle lane that reads like delivery (t_98e495f0 finding 1).
+	if lane := a.callLane(); lane == "in-call" {
+		slog.Warn("announce playback skipped: receiving dot is in-call", "origin", origin)
+		return false, annReasonSkippedInCall
+	}
+	if s := a.now(); s != annIdle && s != annCaptured {
+		if s != "" { // "" = a never-carried announcer; treated as idle
+			slog.Warn("announce play refused: lane busy", "state", string(s), "origin", origin)
+			return false, string(s)
+		}
+	}
+	if lane := a.callLane(); lane == "ringing" {
+		// D-ANN-13: runPlay will wait out the ring and own the outcome (played
+		// or the logged ring-never-resolved skip); with the read-loop never
+		// blocking, that final outcome cannot ride the action's answer, so
+		// the nudge is answered as an accepted deferral.
+		slog.Info("announce playback delayed: receiving dot is ringing", "origin", origin)
+		go a.runPlay(origin)
+		return false, annReasonDelayedRinging
 	}
 	go a.runPlay(origin)
+	return true, annReasonAccepted
 }
 
 // runPlay is the async half of Play. Order matters and is the spec's: the
