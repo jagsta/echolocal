@@ -71,7 +71,16 @@ const (
 	// mic far below it and close speech runs well above; the line errs LOW —
 	// an early bail LOSES speech, so it must miss silence more eagerly than
 	// it misses speech.
-	announceSilenceRMS = 200
+	// Calibration 19 Oct (live lounge, probe-lounge-speech.wav, ch2): speech
+	// at room distance levels at −50..−60 dBFS RMS-frames (median frame RMS
+	// 79, loud bursts ~1100); 200 (−44 dBFS) counted nearly ALL of it as
+	// silence → heard=45 < announceMinSpokenFrames on a real announce →
+	// publish abort → receiver 404, no playback. 64 (−54 dBFS) catches ~50%
+	// of speech frames; ambient floor (median 16, transient spikes) still
+	// stays under it in the median frame. Cost: a noisy room may keep
+	// `quiet` from reaching the bails, so capture runs the full 15s window —
+	// acceptable; missing the announce is not.
+	announceSilenceRMS = 64
 	// Live 19 Oct: the AEC-sounding window (chime + "Speak now." tail, ~2s
 	// POST-lead-in) is digital SILENCE — the canceller removes the bleed, so
 	// those frames are genuinely quiet and every one of them used to count
