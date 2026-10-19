@@ -107,3 +107,33 @@ orchestration stay HA-owned, per the same split as D-P2P-2.
   learning/ERLE. A silent LEVELED stream with a healthy mic peak = the AEC
   sounding path doing its job, not a broken mic — feed that conclusion into
   the counter design, never into a mic-hardware debug loop.
+
+## 19 Oct (session 2) addenda — threshold recalibration + witness
+
+- **D-ANN-15: the capture silence threshold is CALIBRATED TO ROOM-DISTANCE
+  SPEECH, not close speech** — announceSilenceRMS 200 (−44 dBFS) counted
+  nearly ALL of a real at-distance announce as silence (live: heard=45 <
+  min 50 → publish abort → receiver 404, no playback; capture deadlocked to
+  the 15s hard cut because heard<min also blocks the trailing bail). New
+  value 64 (−54 dBFS): catches ~50% of speech frames on the leveled feed,
+  ambient floor (median ~16) stays under it. Committed 2d7cf79, witnessed
+  PASS live (capture 8.24s via trailing-silence bail → receiver played).
+  Known cost: in a noisy room `quiet` may never reach the bails → the
+  capture runs the full 15s window — acceptable; missing the announce is not.
+- **D-ANN-16 (OPEN, quirk witnessed): the capture window has NO LED claim**
+  — the wake/listen blue effect ends with the assist turn, and runCapture
+  claims nothing, so the ring goes dark while the dot is recording (same
+  claim-scope family as the purple playback bug D-ANN-11a, inverted).
+  FIX: claim a capture-side effect (listen-blue) for the window, restore on
+  exit paths.
+- **D-ANN-17 (OPEN, quirk witnessed): the capture chime and the "Speak now."
+  prompt COLLIDE** — chime rides the invoke (D-ANN UX reorder) at the same
+  instant the assist pipeline's TTS grab the speaker; the TTS masks the
+  chime (live: chime fired in logcat, Jag heard only "Speak now."). FIX:
+  stagger the chime ahead of the prompt (or resolve ownership of the first
+  ~1s of the capture UX).
+- Regression WATCH: the 10:38 GMT silent crash at capture start did NOT
+  reproduce on the recalibrated build's first voice announce (full chain
+  survived, err.log wrapper armed). Root cause still unidentified — treat
+  every future voice announce as a potential reproduction; capture stderr
+  stays armed on lounge.
