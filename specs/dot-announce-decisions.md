@@ -179,3 +179,35 @@ the raw feed, speculative trade-offs).
   aborts by design (min-spoken gate) — and the HEARD<50 case also blocks
   the trailing bail, so the lane holds the full 15s window before the
   abort. Witnessed heard=49. Acceptable for now; revisit if it bites.
+
+## D-ANN-19 (19 Oct 2026, Jag ruling "acceptable"): the spoken source preface
+
+The receiver's playback is prefaced with a spoken "announcement from
+<source>". NO speech engine exists on the dots (tone synthesis only; the
+same reason raw-mic capture was declined), so the preface cannot be
+synthesized at play time. Accepted shape (Jag: "acceptable, go ahead"):
+
+- **The ORIGIN prepends the preface at store time.** The served blob =
+  preface + capture, so every receiver's existing fetch/play path
+  (D-ANN-9/10/11 untouched) opens with the label entirely INSIDE the
+  D-ANN-10 pipeline suspension — no extra HA turn, no suspension gap, no
+  wake/self-ingestion hazard. The HA-side tts.speak alternative was
+  REJECTED on exactly that hazard.
+- **The spoken label rides the dropin_announce `source` arg from HA**
+  (orchestration stays HA's, D-ANN-2 split): runtime.py derives it from
+  device_map's announce_name of the CALLER ("lounge", "kitchen", "Jasmine"
+  — the same spoken labels as the ring announce, t_79ebd16b).
+- **Assets are pre-generated, embedded, fleet-identical**:
+  internal/feature/intercom/preface/*.pcm, edge-tts en-GB-SoniaNeural,
+  16 kHz mono s16le (mic.Rate's exact shape), ~0.35 amplitude bake so the
+  intro does not shout over room-distance capture levels. Regenerating a
+  voice = re-run edge-tts + reflash; fleet-wide, never per-dot.
+- **Graceful half**: a source with no asset (new room, or an OLD HA build
+  not sending `source` — which also makes this dot-flash-first/HA-second
+  safe, and vice versa) serves the capture as-is, logged "announce
+  preface: no asset". The lane never wedges on a label.
+- Assets today: lounge, kitchen, jasmine, snug (+ aliases little_lounge/
+  the_lounge→the lounge asset, min/mins_room/jasmines_room→jasmine).
+  New room dot ⇒ regenerate the set WITH the asset or it speaks bare.
+- Tests: TestCapturePrefaceSource / TestCapturePrefaceUnknownSourceServesBare
+  (byte-contract: preface samples head the served blob).

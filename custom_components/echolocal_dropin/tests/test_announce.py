@@ -129,7 +129,7 @@ def test_announce_flow_kicks_origin_then_nudges_targets():
         loop.close()
     esphome_calls = [(svc, dict(d)) for dom, svc, d in calls if dom == "esphome"]
     assert esphome_calls == [
-        ("lounge_dropin_announce", {"room": ""}),   # kick on the ORIGIN
+        ("lounge_dropin_announce", {"room": "", "source": "lounge"}),   # kick on the ORIGIN (D-ANN-19 source label)
         ("kitchen_dropin_play", {"origin": "lounge-dot.jagbains.org"}),  # nudge the target
     ]
 
@@ -334,6 +334,6 @@ def test_aborted_capture_nudges_nothing(caplog):
                 loop.close()
         esphome_calls = [(svc, dict(d)) for dom, svc, d in calls if dom == "esphome"]
         assert esphome_calls == [
-            ("lounge_dropin_announce", {"room": ""}),
+            ("lounge_dropin_announce", {"room": "", "source": "lounge"}),
         ], f"{state}: nudges fired with no published capture"
         assert f"capture from lounge-dot.jagbains.org {state}" in caplog.text

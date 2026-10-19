@@ -1175,16 +1175,22 @@ class DropInRuntime:
     async def _run_announce(self, data: dict[str, Any], targets: list[str]) -> None:
         caller_device = str(data["caller_device"])
         origin_host = dot_host(caller_device)
+        # D-ANN-19: the preface's spoken source label — the device_map's
+        # announce_name for the CALLER ("lounge", "kitchen", "Jasmine"), the
+        # same human label the ring announce (t_79ebd16b) uses. Empty when
+        # the caller has no facts entry: the dot serves a bare capture.
+        source_name = str((dot_for(caller_device) or {}).get("announce_name") or "")
         _LOGGER.info(
-            "echolocal announce: origin=%s targets=%s room=%s",
+            "echolocal announce: origin=%s targets=%s room=%s source=%s",
             origin_host, [dot_for(t)["node"] for t in targets],
-            data.get("target_room") or "(all)",
+            data.get("target_room") or "(all)", source_name or "(none)",
         )
         # 1. Kick the origin's capture. The action answers instantly with the
         # lane state; a refusal (in-call, lane busy) shows in the reply — log
         # and stop, the dot already declined (D-ANN-13 dot-side).
         kick = await self._esphome_action(caller_device, "dropin_announce", {
             "room": str(data.get("target_room") or ""),
+            "source": source_name,
         })
         if not kick.get("announce_ok", True):
             _LOGGER.warning("announce capture refused by %s: %s", origin_host, kick)

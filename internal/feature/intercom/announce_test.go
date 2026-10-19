@@ -232,7 +232,7 @@ func TestCaptureNeverSpokeAbortsTheLane(t *testing.T) {
 	a.mu.Lock()
 	a.state = annCapturing
 	a.mu.Unlock()
-	a.runCapture("kitchen")
+	a.runCapture("kitchen", "")
 	if a.now() != annIdle {
 		t.Fatalf("lane after never-spoke capture: %s, want annIdle", a.now())
 	}
@@ -292,7 +292,7 @@ func TestCaptureClaimsAndReleasesTheBlueLED(t *testing.T) {
 		a.mu.Lock()
 		a.state = annCapturing
 		a.mu.Unlock()
-		a.runCapture("kitchen")
+		a.runCapture("kitchen", "")
 		if claims != 1 || releases != 1 {
 			t.Fatalf("abort=%v: LED claims %d releases %d, want 1/1 (D-ANN-18 settle)", endInAbort, claims, releases)
 		}
@@ -314,7 +314,7 @@ func TestCaptureSupersedesAFinishedSlot(t *testing.T) {
 	i.ann.callFn = func() string { return "idle" }
 	var chimed int
 	i.ann.chime = func(string, []sharedtone.Note) { chimed++ }
-	i.Capture("kitchen")
+	i.Capture("kitchen", "")
 	if i.ann.now() != annCapturing {
 		t.Fatalf("lane after superseding capture: %s, want annCapturing", i.ann.now())
 	}
@@ -329,7 +329,7 @@ func TestCaptureSupersedesAFinishedSlot(t *testing.T) {
 		i2.ann = announcer{state: st}
 		i2.ann.callFn = func() string { return "idle" }
 		i2.ann.chime = func(string, []sharedtone.Note) { t.Fatalf("chimed while %s", string(st)) }
-		i2.Capture("kitchen")
+		i2.Capture("kitchen", "")
 		if i2.ann.now() != st {
 			t.Fatalf("lane changed during refused capture: %s", i2.ann.now())
 		}
@@ -344,7 +344,7 @@ func TestCaptureRefusedWhileInCall(t *testing.T) {
 	i.ann.callFn = func() string { return "in-call" }
 	i.ann.chime = func(string, []sharedtone.Note) { t.Fatal("chimed while in-call") }
 
-	i.Capture("kitchen")
+	i.Capture("kitchen", "")
 	if got := i.ann.now(); got != annIdle {
 		t.Fatalf("capture entered the lane while in-call: %s", got)
 	}
@@ -368,7 +368,7 @@ func TestCaptureWaitsForTheAssistTurn(t *testing.T) {
 	// runCapture must wait for that, not for it.
 	time.AfterFunc(50*time.Millisecond, func() { open.Store(false) })
 
-	go a.runCapture("kitchen")
+	go a.runCapture("kitchen", "")
 	select {
 	case <-started:
 		t.Fatal("capture opened its mic window while the assist turn was still open")
@@ -389,7 +389,7 @@ func TestCaptureCompleteStoresAndServe(t *testing.T) {
 	a.mu.Lock()
 	a.state = annCapturing
 	a.mu.Unlock()
-	a.runCapture("kitchen") // synchronous: the fixture's supply is finite
+	a.runCapture("kitchen", "") // synchronous: the fixture's supply is finite
 	if a.now() != annCaptured {
 		t.Fatalf("lane state after capture: %s", a.now())
 	}
@@ -415,6 +415,62 @@ func TestCaptureCompleteStoresAndServe(t *testing.T) {
 	// D-ANN-8: decoded round-trip — first sample matches the captured frame's amp.
 	if got := int16(uint16(body[0]) | uint16(body[1])<<8); got != 3000 {
 		t.Fatalf("first decoded sample: %d", got)
+	}
+}
+
+// TestCapturePrefacesTheSource pins D-ANN-19: a capture with a known source
+// stores THE PREFACE prepended to the recording, so the served blob the
+// receiver fetches already opens with "announcement from <source>" — with no
+// change to the receiver's fetch/play path. The round-trip check above pins
+// the bare-capture byte contract; this one pins the preface contract.
+func TestCapturePrefaceSource(t *testing.T) {
+	a, _ := announceFixture(t)
+	a.notify = func(state announceState) {}
+	frames := framesOf(announceRecordLeadInFrames+announceMinSpokenFrames+25, 6000)
+	a.listen = func() (<-chan []int16, func()) { return frames, func() {} }
+	a.mu.Lock()
+	a.state = annCapturing
+	a.mu.Unlock()
+
+	wantPref := prefacePCM("lounge")
+	if len(wantPref) == 0 {
+		t.Fatal("no embedded preface asset for 'lounge' — the asset set is missing")
+	}
+	a.runCapture("everyone", "The Lounge")
+	if a.now() != annCaptured {
+		t.Fatalf("lane after preface capture: %s", a.now())
+	}
+	if len(a.captured.pcm) <= len(wantPref) {
+		t.Fatalf("preface capture only %d samples — the preface did not ride", len(a.captured.pcm))
+	}
+	for n, want := range wantPref {
+		if a.captured.pcm[n] != want {
+			t.Fatalf("preface sample %d: %d, want %d", n, a.captured.pcm[n], want)
+		}
+	}
+	if a.captured.source != "The Lounge" {
+		t.Fatalf("captured source: %q", a.captured.source)
+	}
+}
+
+// TestCapturePrefaceUnknownSourceServesBare pins D-ANN-19's graceful half: a
+// source outside the asset set (or an old HA build not sending `source`)
+// publishes the bare capture and logs — never wedges, never drops speech.
+func TestCapturePrefaceUnknownSourceServesBare(t *testing.T) {
+	a, _ := announceFixture(t)
+	a.notify = func(state announceState) {}
+	frames := framesOf(announceRecordLeadInFrames+announceMinSpokenFrames+25, 6000)
+	a.listen = func() (<-chan []int16, func()) { return frames, func() {} }
+	a.mu.Lock()
+	a.state = annCapturing
+	a.mu.Unlock()
+
+	a.runCapture("everyone", "the moon")
+	if a.now() != annCaptured {
+		t.Fatalf("lane after unknown-source capture: %s", a.now())
+	}
+	if got := int16(a.captured.pcm[0]); got != 6000 {
+		t.Fatalf("first sample: %d, want the bare capture head (6000)", got)
 	}
 }
 

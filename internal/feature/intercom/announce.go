@@ -138,8 +138,9 @@ const (
 // announceCapture is one finished announcement held on the origin dot.
 type announceCapture struct {
 	id   string // "ann-<unixnano>" log/join key, mirrored in the X-Announce-Id header
-	room string // announced target ("" = broadcast); informational
-	pcm  []int16
+	room   string // announced target ("" = broadcast); informational
+	source string // D-ANN-19: spoken source label for the receiver's preface
+	pcm    []int16
 	at   time.Time
 }
 
@@ -214,7 +215,7 @@ func (a *announcer) callLane() string {
 // contention, else run the window on its own goroutine (the API read loop
 // must never wait — third_party conn.go's handler contract). HA learns
 // completion from the session sensor; the dot stores + serves the capture.
-func (i *Intercom) Capture(room string) {
+func (i *Intercom) Capture(room string, source string) {
 	a := &i.ann
 	// D-ANN UX: the spoken prompt is HA's reply on the invoking dot itself
 	// ("What's the announcement?", 17a — an earlier dot-side chime rode the
@@ -248,14 +249,14 @@ func (i *Intercom) Capture(room string) {
 	}
 	a.state = annCapturing
 	a.mu.Unlock()
-	go a.runCapture(room)
+	go a.runCapture(room, source)
 }
 
 // runCapture waits for the assist turn to end cleanly (D-ANN-4), then records
 // the 15s window and stores + publishes. A capture whose window overlapped a
 // call start is DISCARDED at the store step: call audio would be in it
 // (D-ANN-13 mid-capture yield).
-func (a *announcer) runCapture(room string) {
+func (a *announcer) runCapture(room string, source string) {
 	// D-ANN-4: mic ownership moves away from the assistant pipeline BEFORE
 	// capture starts. The intent automation fires while the pipeline is still
 	// finishing its spoken reply; wait for it to drain rather than racing it.
@@ -315,16 +316,28 @@ func (a *announcer) runCapture(room string) {
 		return
 	}
 	cap := announceCapture{
-		id:   fmt.Sprintf("ann-%d", time.Now().UnixNano()),
-		room: room,
-		pcm:  pcm,
-		at:   time.Now(),
+		id:     fmt.Sprintf("ann-%d", time.Now().UnixNano()),
+		room:   room,
+		source: source,
+		pcm:    pcm,
+		at:     time.Now(),
+	}
+	// D-ANN-19: the preface rides at the HEAD of the served blob, prepended
+	// at store time so every receiver's existing fetch/play path (and its
+	// pipeline-suspended playback) hears "announcement from <source>" before
+	// the recording without any per-receiver change. A source with no asset
+	// (or an old HA build not sending `source`) serves as-is, logged.
+	if pref := prefacePCM(source); len(pref) > 0 {
+		cap.pcm = append(append([]int16{}, pref...), pcm...)
+		slog.Info("announce preface", "source", source, "seconds", prefaceSeconds(pref))
+	} else if source != "" {
+		slog.Warn("announce preface: no asset for source; serving bare capture", "source", source)
 	}
 	a.mu.Lock()
 	a.captured = cap
 	a.state = annCaptured
 	a.mu.Unlock()
-	slog.Info("announce captured", "id", cap.id, "room", room, "why", why,
+	slog.Info("announce captured", "id", cap.id, "room", room, "source", source, "why", why,
 		"seconds", float64(len(pcm))/float64(mic.Rate))
 
 	select {

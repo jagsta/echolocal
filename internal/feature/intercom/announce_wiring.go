@@ -96,8 +96,8 @@ func (i *Intercom) wireAnnounce() {
 
 // CaptureWithRoom is the dropin_announce action body: spawn the capture lane
 // and answer the lane state so HA's caller can log the acceptance/refusal.
-func (i *Intercom) CaptureWithRoom(room string) map[string]any {
-	i.Capture(room)
+func (i *Intercom) CaptureWithRoom(room string, source string) map[string]any {
+	i.Capture(room, source)
 	return map[string]any{"announce": string(i.ann.now())}
 }
 
@@ -120,15 +120,16 @@ func (i *Intercom) wireActionsAnnounce(actions []*esphome.Action) []*esphome.Act
 	return append(actions,
 		&esphome.Action{
 			Name: "dropin_announce",
-			Args: []esphome.Arg{{Name: "room"}},
+			Args: []esphome.Arg{{Name: "room"}, {Name: "source"}},
 			// Answers, not waiting: Run spawns the capture goroutine and
 			// returns the lane state immediately — the API read loop must
 			// never wait on a 15s lane (conn.go's handler contract).
 			Answers: true,
 			Run: func(c esphome.Call) (any, error) {
 				room := c.String("room")
-				slog.Info("dropin announce", "room", room)
-				return i.CaptureWithRoom(room), nil
+				source := c.String("source") // D-ANN-19: spoken source label; "" = no preface
+				slog.Info("dropin announce", "room", room, "source", source)
+				return i.CaptureWithRoom(room, source), nil
 			},
 		},
 		&esphome.Action{
