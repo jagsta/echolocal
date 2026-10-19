@@ -171,6 +171,4 @@
     data:
       caller_device: '{{ caller_device }}'
       target_room: '{{ target_room }}'
-  - set_conversation_response: >-
-      {{ 'Announcing to ' ~ (target_room | replace('_',' ')) if target_room
-      else 'Announcing to every dot.' }}
+  - set_conversation_response: Recording.
