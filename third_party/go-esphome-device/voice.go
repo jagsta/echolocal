@@ -169,11 +169,17 @@ func (v *VoiceSatellite) StartTurn(wakeWordPhrase string, settings *api.VoiceAss
 	if settings == nil {
 		settings = &api.VoiceAssistantAudioSettings{VolumeMultiplier: 1}
 	}
-	return conn.Send(&api.VoiceAssistantRequest{
+	err := conn.Send(&api.VoiceAssistantRequest{
 		Start:          true,
 		WakeWordPhrase: wakeWordPhrase,
 		AudioSettings:  settings,
 	})
+	if err != nil {
+		v.mu.Lock()
+		v.turnOpen = false
+		v.mu.Unlock()
+	}
+	return err
 }
 
 // StopTurn ends the current turn early.
@@ -222,15 +228,35 @@ func (v *VoiceSatellite) AnnounceFinished(success bool) error {
 	return conn.Send(&api.VoiceAssistantAnnounceFinished{Success: success})
 }
 
+func (v *VoiceSatellite) ConnClosed(c *Conn) {
+	v.mu.Lock()
+	if v.conn != c {
+		v.mu.Unlock()
+		return
+	}
+	v.conn = nil
+	v.turnOpen = false
+	notify := v.OnSubscribed
+	v.mu.Unlock()
+	if notify != nil {
+		notify(false)
+	}
+}
+
 func (v *VoiceSatellite) Handle(ctx context.Context, c *Conn, msg proto.Message) error {
 	switch m := msg.(type) {
 	case *api.SubscribeVoiceAssistantRequest:
 		v.mu.Lock()
 		was := v.conn != nil
-		if m.GetSubscribe() {
+		switch {
+		case m.GetSubscribe() && v.conn != nil && v.conn != c:
+			v.mu.Unlock()
+			c.log.Warn("another client already holds the voice assistant")
+			return nil
+		case m.GetSubscribe():
 			v.conn = c
 			v.apiAudio = m.GetFlags()&uint32(api.VoiceAssistantSubscribeFlag_VOICE_ASSISTANT_SUBSCRIBE_API_AUDIO) != 0
-		} else if v.conn == c {
+		case v.conn == c:
 			v.conn = nil
 			v.turnOpen = false
 		}

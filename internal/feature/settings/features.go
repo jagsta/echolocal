@@ -7,6 +7,7 @@ import (
 	sharedshell "github.com/ygelfand/libcountertop/pkg/display/shell"
 
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/airplay"
 	"github.com/ygelfand/echolocal/internal/feature/bluetooth"
 	"github.com/ygelfand/echolocal/internal/feature/sendspin"
 	"github.com/ygelfand/echolocal/internal/feature/shell"
@@ -25,6 +26,11 @@ var features = []feature{
 		key: "features.sendspin",
 		on:  func(c config.Config) bool { return c.Sendspin.Enabled },
 		set: func(on bool) { sendspin.Get().SetEnabled(on) },
+	},
+	{
+		key: "features.airplay",
+		on:  func(c config.Config) bool { return c.AirPlay.Enabled },
+		set: func(on bool) { airplay.Get().SetEnabled(on) },
 	},
 	{
 		key: "features.proxy",

@@ -1,0 +1,63 @@
+---
+title: "Echo Show: getting around"
+description: The dashboard, the dock, apps, going back, and the buttons.
+---
+
+import { Image } from 'astro:assets';
+import tessera from '../../../assets/screens/tessera.webp';
+import dash from '../../../assets/screens/show-dash.png';
+
+This page is about the Echo Shows. For the Echo Dot, see [Echo Dot: buttons and light
+ring](/use/dot/).
+
+## The dashboard
+
+Most of the time the device shows your dashboard: Tessera pages of Home Assistant tiles, or a big
+clock with the weather and your Home Assistant lights and switches. See [Dashboards](/use/dashboards/).
+
+<Image src={tessera} alt="A Tessera dashboard" class="screen" />
+
+<Image src={dash} alt="The native dashboard with the clock and weather" class="screen" />
+
+Swipe left and right to move between Tessera pages, or tap the tabs on the native dashboard.
+
+## The dock
+
+The dock sits on the right edge of the screen. It has:
+
+- **Settings** (the gear): every option on the device
+- **Apps** (the grid): every app, see [Apps](/features/apps/)
+- **Your starred apps**, like Intercom, the player or the shopping list
+- **Sleep** (the moon): start the screen saver now
+
+**Settings → Display → Dock position** moves it to the left, top or bottom edge.
+**Hide dock after** hides it after 5 seconds to a minute without a touch; swipe in from its edge to
+bring it back.
+
+## Volume buttons
+
+Each press changes the main volume by one of its 30 steps; hold to keep going.
+A volume panel pops up on the side of the screen and shows the level. Tap the circle at the top of
+the panel to see every volume (media, alarms, the assistant and system sounds) and pick which one
+the buttons change.
+
+**Settings → Sound → Volume buttons** sets what the buttons change otherwise:
+
+- **What's playing**, the default: the volume of what you're hearing. A ringing alarm or timer comes first, then
+  the assistant or a call, then music and video, and the main volume when nothing is playing. With
+  the player card, a video or a call on screen, the buttons change that volume, even while paused.
+  The panel opens on the volume they change.
+- **Main volume**: the main volume, always.
+
+The panel can sit on the left or right. Change it in **Settings → Display → Volume panel
+position**.
+
+## Mute button and shutter
+
+The mute button cuts the microphones and the camera; the camera shutter slides over the lens. See
+[Privacy](/features/privacy/). Every press and hold of the volume and mute buttons is also an event
+in Home Assistant, for automations.
+
+## Tap to dismiss
+
+Tap to close the screen saver, a message, a ringing timer or alarm, or the voice assistant.

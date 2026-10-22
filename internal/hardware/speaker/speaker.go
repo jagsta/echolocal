@@ -21,7 +21,6 @@ import (
 	"github.com/ygelfand/libcountertop/pkg/runtime/safe"
 	"github.com/ygelfand/libcountertop/pkg/runtime/service"
 
-	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/lib/asp"
@@ -45,8 +44,7 @@ const (
 const VoiceRate = upsample.VoiceRate
 
 const (
-	Card           = 0
-	PlaybackDevice = 23
+	Card = 0
 
 	AmpSwitch = "Ext_Speaker_Amp_Switch"
 )
@@ -69,7 +67,6 @@ type Player struct {
 	voiceMu    sync.Mutex
 	voice      upsample.Resampler
 	resampling upsample.Kind
-	splices    atomic.Uint64
 
 	// monoUpMu guards monoUp, the resampler PlayMono uses for 16 kHz mono
 	// producers (currently the dot↔dot intercom leg). Deliberately NOT
@@ -78,12 +75,13 @@ type Player struct {
 	// continuous call stream.
 	monoUpMu sync.Mutex
 	monoUp   upsample.Resampler
+	splices  atomic.Uint64
 
-	tuning *asp.Tuning
-	chain  *asp.Chain
+	stereo bool
+	chains []*asp.Chain
+	lanes  [][]float32
 	on     atomic.Bool
 	stale  atomic.Bool
-	mono   []float32
 
 	fed bool
 
@@ -105,26 +103,36 @@ func (p *Player) Attach(s mix.Source) { p.bus.Attach(s) }
 func (p *Player) Written() uint64 { return p.written.Load() }
 
 func New() *Player {
-	p := &Player{out: DetectOutput()}
+	p := &Player{out: DetectOutput(), stereo: component.Board().Stereo}
 	p.voice, p.resampling = upsample.New(upsample.Sinc, Rate)
+	// PlayMono's own resampler (see monoUp's field comment).
 	p.monoUp, _ = upsample.New(upsample.Sinc, Rate)
 	p.SetVolume(VolumeSteps)
 	p.on.Store(config.DefaultASP)
 
-	if !component.Board().Has(board.ASP) {
+	files := component.Board().Tuning
+	if !files.Listed() {
 		return p
 	}
-	t, err := asp.Load(asp.VendorDir)
+	t, err := asp.Load(asp.VendorDir, files)
 	if err != nil {
 		slog.Error("the driver tuning is not available, playing untuned", "err", err)
 		return p
 	}
-	c, err := t.Chain(period)
-	if err != nil {
-		slog.Error("the driver tuning will not run, playing untuned", "err", err)
-		return p
+	drivers := 1
+	if p.stereo {
+		drivers = Channels
 	}
-	p.tuning, p.chain, p.mono = t, c, make([]float32, period)
+	for range drivers {
+		c, err := t.Chain(period)
+		if err != nil {
+			slog.Error("the driver tuning will not run, playing untuned", "err", err)
+			p.chains, p.lanes = nil, nil
+			return p
+		}
+		p.chains = append(p.chains, c)
+		p.lanes = append(p.lanes, make([]float32, period))
+	}
 	return p
 }
 
@@ -341,20 +349,14 @@ func (p *Player) fill(buf []byte) {
 		p.splices.Add(1)
 	}
 
-	// The internal speaker is one driver wired to the right channel.
-	mono := p.Output() == OutputSpeaker
+	speaker := p.Output() == OutputSpeaker
+	mono := speaker && !p.stereo
 
 	fed := take > 0 || rendered
 	drain := fed || p.fed
 	p.fed = fed
 
-	tuned := mono && p.chain != nil && p.on.Load() && drain
-
-	// The vendor's volume is two halves: its EQ bucket's gain before the tuning, the curve's attenuation after.
-	makeup := float32(1)
-	if tuned {
-		makeup = float32(p.tuning.Makeup(float64(p.step.Load()) / VolumeSteps))
-	}
+	tuned := speaker && len(p.chains) > 0 && p.on.Load() && drain
 
 	tap := p.tap.Load()
 	if tap != nil && cap(p.tapBuf) < period*Channels {
@@ -376,7 +378,10 @@ func (p *Player) fill(buf []byte) {
 			r = l
 		}
 		if tuned {
-			p.mono[j] = float32(mix.Clamp(l)) / full * makeup
+			p.lanes[0][j] = float32(mix.Clamp(l)) / full
+			if p.stereo {
+				p.lanes[1][j] = float32(mix.Clamp(r)) / full
+			}
 			continue
 		}
 		binary.LittleEndian.PutUint16(buf[i*2:], uint16(int16(float32(mix.Clamp(l))*gain)))
@@ -389,16 +394,19 @@ func (p *Player) fill(buf []byte) {
 		return
 	}
 
-	if p.stale.Swap(false) {
-		p.chain.Reset()
+	stale := p.stale.Swap(false)
+	share := float64(p.step.Load()) / VolumeSteps
+	for c, chain := range p.chains {
+		if stale {
+			chain.Reset()
+		}
+		// The tuning's limiter holds a fixed ceiling.
+		chain.Process(p.lanes[c], share)
 	}
-
-	// The tuning's limiter holds a fixed ceiling.
-	p.chain.Process(p.mono)
+	right := p.lanes[len(p.lanes)-1]
 	for i, j := 0, 0; i < period*Channels; i, j = i+Channels, j+1 {
-		s := int16(p.mono[j] * full * gain)
-		binary.LittleEndian.PutUint16(buf[i*2:], uint16(s))
-		binary.LittleEndian.PutUint16(buf[(i+1)*2:], uint16(s))
+		binary.LittleEndian.PutUint16(buf[i*2:], uint16(mix.Clamp(int32(p.lanes[0][j]*full*gain))))
+		binary.LittleEndian.PutUint16(buf[(i+1)*2:], uint16(mix.Clamp(int32(right[j]*full*gain))))
 	}
 }
 
@@ -418,6 +426,8 @@ func (p *Player) PlayStream(s config.Stream, samples []int16) {
 func (p *Player) Take() []int16 { return p.bus.Take(config.StreamMedia) }
 
 func (p *Player) Adjust(rewrite func([]int16)) { p.bus.Adjust(config.StreamMedia, rewrite) }
+
+func (p *Player) Heard(s config.Stream, within time.Duration) bool { return p.bus.Heard(s, within) }
 
 func (p *Player) PlayVoice(mono []int16) {
 	p.voiceMu.Lock()
@@ -473,7 +483,7 @@ func (p *Player) SetResampling(r config.Resampling) config.Resampling {
 }
 
 func (p *Player) SetASP(on bool) bool {
-	on = on && p.chain != nil
+	on = on && len(p.chains) > 0
 	if on && !p.on.Load() {
 		p.stale.Store(true)
 	}

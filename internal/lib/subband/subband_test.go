@@ -3,6 +3,7 @@ package subband
 import (
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/ygelfand/libcountertop/pkg/audio/fft"
@@ -65,6 +66,14 @@ func TestBankReconstructs(t *testing.T) {
 	})
 }
 
+func alone(beams int) [][]int {
+	out := make([][]int, beams)
+	for j := range out {
+		out[j] = []int{j}
+	}
+	return out
+}
+
 func passThrough(g geometry) *Weights {
 	w := &Weights{
 		g:      g,
@@ -79,9 +88,12 @@ func passThrough(g geometry) *Weights {
 	return w
 }
 
-func TestBeamFollowsTheLoudestMicrophone(t *testing.T) {
+func TestBeamFollowsTheTalker(t *testing.T) {
 	eachGeometry(t, func(t *testing.T, g geometry) {
-		const talker = 3
+		const (
+			talker = 3
+			calls  = 140
+		)
 		b := passThrough(g).New()
 
 		frame := make([][]int16, g.Channels())
@@ -90,23 +102,30 @@ func TestBeamFollowsTheLoudestMicrophone(t *testing.T) {
 		}
 
 		got := 0
-		for call := range 20 {
+		for call := range calls {
+			speaking := call/15%2 == 0
 			for i := range testFrame {
 				for m := range frame {
 					frame[m][i] = int16(rand.N(200) - 100)
 				}
-				tt := float64(call*testFrame+i) / 16000
-				frame[g.mics[talker]][i] = int16(8000 * math.Sin(2*math.Pi*500*tt))
+				if speaking {
+					tt := float64(call*testFrame+i) / 16000
+					frame[g.mics[talker]][i] += int16(8000 * math.Sin(2*math.Pi*500*tt))
+				}
 			}
 			got += len(b.Mix(frame))
 		}
 
-		if want := 20*testFrame - g.Hop; got < want {
-			t.Errorf("Mix returned %d samples of %d, want at least %d", got, 20*testFrame, want)
+		if want := calls*testFrame - g.Hop; got < want {
+			t.Errorf("Mix returned %d samples of %d, want at least %d", got, calls*testFrame, want)
 		}
-		if b.Beam()%g.Inputs() != talker {
-			t.Errorf("listening to beam %d, which is microphone %d, want %d where the talker is",
-				b.Beam(), b.Beam()%g.Inputs(), talker)
+		group := g.groups[b.using]
+		if !slices.ContainsFunc(group, func(beam int) bool { return beam%g.Inputs() == talker }) {
+			t.Errorf(
+				"listening to beams %v, none of them microphone %d where the talker is",
+				group,
+				talker,
+			)
 		}
 	})
 }

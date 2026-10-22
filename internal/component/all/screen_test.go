@@ -15,6 +15,8 @@ var screenOnly = []string{
 	"github.com/ygelfand/libcountertop/pkg/display/gpu",
 	"github.com/ygelfand/echolocal/internal/feature/visuals",
 	"github.com/ygelfand/echolocal/internal/feature/idle",
+	"github.com/ygelfand/echolocal/internal/feature/apps",
+	"github.com/ygelfand/libcountertop/pkg/display/apps",
 	"github.com/ygelfand/echolocal/internal/ui/visual",
 	"github.com/ygelfand/echolocal/internal/hardware/touch",
 	"github.com/ygelfand/echolocal/internal/ui/reveal",

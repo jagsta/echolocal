@@ -1,0 +1,30 @@
+---
+title: Privacy
+description: The microphone mute and the camera shutter.
+---
+
+## Mute button
+
+Cuts the microphones in hardware; the red light shows it. On the Echo Shows it cuts the camera too.
+**Mute sound** in Home Assistant plays when it changes, and holding the button plays the **Mute hold
+sound**.
+
+Home Assistant can mute with the **Microphone mute** switch (`mic_mute`). On some Echos only the
+button can unmute, by design.
+
+On the Echo Dot, **Ring while muted** can show an effect on the ring, and **Mute LED brightness**
+sets the red light to **Dim** or **Bright**.
+
+## Camera shutter
+
+On the Echo Shows.
+Stops the camera: no stream, no snapshots.
+
+## Indicators
+
+On the Echo Shows,
+while either is off, a red mark shows in a top corner: microphone on the left, camera on the right.
+Turn them off with **Settings → Display → Privacy indicators**.
+
+Home Assistant gets the **Microphone mute** switch and, on the Echo Shows, the **Camera covered**
+sensor.

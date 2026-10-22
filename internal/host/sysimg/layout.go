@@ -1,7 +1,11 @@
 package sysimg
 
+import "github.com/ygelfand/echolocal/internal/host/bootimg"
+
 type Layout struct {
-	VerityOffset int64
+	Partitions []Partition
+
+	Policy string
 
 	Patches []Patch
 
@@ -18,9 +22,19 @@ type Layout struct {
 }
 
 func (l Layout) Empty() bool {
-	return l.VerityOffset == 0 && len(l.Patches) == 0 && l.Adbd.Path == "" &&
-		len(l.Props) == 0 && len(l.Gate) == 0 && l.ServiceRC == ""
+	return len(l.Partitions) == 0 && l.Policy == "" && len(l.Patches) == 0 &&
+		l.Adbd.Path == "" && len(l.Props) == 0 && len(l.Gate) == 0 && l.ServiceRC == ""
 }
+
+type Partition struct {
+	Name string
+
+	Mount string
+
+	VerityOffset int64
+}
+
+func (p Partition) Node(slot string) string { return bootimg.ByName + p.Name + slot }
 
 type BinPatch struct {
 	Path          string
@@ -29,11 +43,12 @@ type BinPatch struct {
 }
 
 var Biscuit = Layout{
-	VerityOffset: VerityOffset,
-	Patches:      []Patch{DefaultProp, Fstab},
-	Adbd:         Adbd,
-	OTAKey:       OTAKey,
-	OTAValue:     OTAValue,
+	Partitions: []Partition{{Name: "system", VerityOffset: VerityOffset}},
+	Policy:     "sepolicy",
+	Patches:    []Patch{DefaultProp, Fstab},
+	Adbd:       Adbd,
+	OTAKey:     OTAKey,
+	OTAValue:   OTAValue,
 }
 
 // Checkers and Cronos keep their root filesystem in the boot ramdisk.
@@ -52,7 +67,36 @@ var (
 	}
 )
 
+// Athena's kernel mounts /vendor from its device tree with verify.
+var Athena = Layout{
+	Partitions: []Partition{
+		{Name: "system", VerityOffset: 3229208576},
+		{Name: "vendor", Mount: "vendor", VerityOffset: 297496576},
+	},
+	Policy:  "vendor/etc/selinux/precompiled_sepolicy",
+	Patches: []Patch{AthenaFOSFlags, AthenaConnectivity, AthenaCameraServer},
+	Adbd: BinPatch{
+		Path:   "system/bin/adbd",
+		Offset: 153016,
+		Before: []byte{0x80, 0xb5, 0x00, 0xf0},
+		After:  []byte{0x01, 0x20, 0x70, 0x47},
+	},
+	OTAKey:    OTAKey,
+	OTAValue:  OTAValue,
+	PropsPath: "system/etc/prop.default",
+	Props: map[string]string{
+		"ro.secure":              "0",
+		"ro.adb.secure":          "0",
+		"ro.debuggable":          "1",
+		"persist.sys.usb.config": "adb",
+	},
+
+	// install-recovery.sh writes the stock recovery over TWRP on every boot.
+	Gate: []string{"flash_recovery", "zygote"},
+}
+
 var Rook = Layout{
+	Policy:    "sepolicy",
 	PropsPath: "default.prop",
 	Props: map[string]string{
 		"ro.secure":              "0",

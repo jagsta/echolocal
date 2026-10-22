@@ -1,0 +1,110 @@
+---
+title: Voice assistants
+description: Two wake words, each with its own Assist pipeline, and everything you can tune.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Wake words run on the device. Audio goes only where your Assist pipeline sends it.
+
+## Two assistants
+
+**Assistant 1** and **Assistant 2** each have their own wake word, Assist pipeline, sensitivity,
+sounds and timing. Use one for Home Assistant's own assistant and the other for, say, a cloud LLM.
+A slot with no wake word is off.
+
+## Set it up
+
+<Steps>
+
+1. In Home Assistant, open the device's **Assistant 1** device.
+
+2. Pick an **Assistant** (Assist pipeline) and a **Wake word**. Custom wake words added to Home
+   Assistant are listed too. The [EchoLocal integration](/start/integration/) adds a wake word library for managing them.
+
+3. The device downloads the wake word and starts listening.
+
+</Steps>
+
+On an Echo Show you can also pick the wake word under **Settings → Voice assistants**. That needs
+**Allow the device to perform Home Assistant actions** turned on for the device in the ESPHome
+integration; without it the row is dimmed.
+
+## Starting without the wake word
+
+- **Echo Dot:** tap the action button for assistant 1, hold it for assistant 2.
+- **Echo Show:** **Talk now** on the assistant's settings page.
+- From Home Assistant: the **Wake** button on the assistant's device (`wake_assistant_1`,
+  `wake_assistant_2`).
+
+## On the screen
+
+On the Echo Shows,
+**Settings → Voice assistants** has a page per assistant:
+
+- **Talk now**
+- **Wake word**
+- **Wake word sensitivity**: higher wakes more easily, with more false wakes. In Home Assistant the
+  same setting is a threshold (0.5–0.99, default 0.85) where *lower* wakes more easily
+- **Wake sound**: a chime, a [custom tone](/features/tones/), or none
+- **Response playback**: **Stream** starts sooner and can stutter on a slow network; **Download
+  first** waits for the whole answer
+- **Visuals**: a visual for listening, thinking and replying, in the panel or full screen
+
+  <img src="/visuals/orb.webp" alt="The Orb visual" class="screen-wide" width="640" height="400" loading="lazy" />
+
+## Timing, follow-up and recordings
+
+These are only in Home Assistant, on each assistant's device:
+
+| Setting | What it does | Default |
+|---|---|---|
+| **Follow-up time** | Keep listening after a reply, so you can ask again without the wake word (0–30 s) | 0 |
+| **Max listening time** | Stop listening after this long (5–60 s) | 15 s |
+| **Max thinking time** | Give up waiting for Home Assistant after this long (5–300 s) | 90 s |
+| **Reply buffer** | How much of a streamed reply to collect before playing (0–3000 ms) | 650 ms |
+| **Recordings kept** | Keep the audio of the last N requests (0–10), for the card's Activity tab | 0 |
+
+The **Last wake word**, **Last heard** and **Last reply** sensors show the most recent turn.
+
+On the Echo Dot, the ring shows each stage with its own effect: **Wake word effect**, **Thinking
+effect** and **Replying effect**, per assistant. See [Echo Dot: buttons and light
+ring](/use/dot/).
+
+## Stop
+
+Say **"stop"**, no wake word needed, tap the screen on an Echo Show, or tap the action button on an Echo Dot. It stops, in order: a ringing alarm or timer, the assistant, an announcement, then pauses music.
+
+**Stop word sensitivity** in Home Assistant (0.5–1, default 0.7) sets how sure it has to be; 1 turns
+it off.
+
+## Voice triggers
+
+Two kinds of things you can say, each with its own switches under **Settings → Voice triggers** on
+an Echo Show and on the **voice triggers** device in Home Assistant. Everything is on to start
+with.
+
+**Actions** are said to an assistant, after the wake word. Assist hands them to the device:
+
+- **"Call the kitchen"**, **"video call the kitchen"**: [an intercom call](/features/intercom/#calling-by-voice)
+- **"Broadcast"**, **"broadcast dinner is ready"**: [a broadcast](/features/intercom/#broadcasts)
+
+Actions need the [EchoLocal integration](/start/integration/). When it's missing or out of date,
+the Voice triggers page says so, with a code to scan that opens it in HACS.
+
+**Commands** are heard on the device itself, without a wake word (Echo Show):
+
+- **"Radar"** (or "show me the weather radar") opens the [Radar app](/features/apps/#radar)
+- **"Mirror"** opens [Mirror](/features/apps/#mirror)
+
+**All actions** and **All commands** turn a whole kind off; each one has its own switch too.
+
+## Timers
+
+"Set a timer for ten minutes" starts a timer, with a countdown on an Echo Show. See
+[Messages, timers and alarms](/features/messages/).
+
+<Aside type="tip">
+If the wake word triggers too often or not enough, see [Microphones](/features/microphones/) as well
+as the sensitivity.
+</Aside>

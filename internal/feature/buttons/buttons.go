@@ -17,8 +17,10 @@ func init() {
 }
 
 const (
-	Press = "press"
-	Hold  = "hold"
+	Press  = "press"
+	Hold   = "hold"
+	Double = "double"
+	Triple = "triple"
 )
 
 var order = []buttons.Name{buttons.Action, buttons.Mute, buttons.VolumeDown, buttons.VolumeUp}
@@ -36,12 +38,16 @@ func Get() *Events {
 	once.Do(func() {
 		shared = &Events{events: map[buttons.Name]*esphome.Event{}}
 		for _, name := range order {
+			types := []string{Press, Hold}
+			if name == buttons.Action {
+				types = append(types, Double, Triple)
+			}
 			shared.events[name] = &esphome.Event{
 				Base: esphome.Base{
 					ObjectID: "button_" + string(name),
 					Name:     label(string(name)) + " button",
 				},
-				Types: []string{Press, Hold},
+				Types: types,
 			}
 		}
 		buttons.Get().Events.Listen(shared.report)
@@ -69,11 +75,16 @@ func (e *Events) report(ev buttons.Event) {
 	if !ok {
 		return
 	}
-	if ev.Kind == buttons.Hold {
+	switch ev.Kind {
+	case buttons.Hold:
 		entity.Trigger(Hold)
-		return
+	case buttons.DoubleTap:
+		entity.Trigger(Double)
+	case buttons.TripleTap:
+		entity.Trigger(Triple)
+	default:
+		entity.Trigger(Press)
 	}
-	entity.Trigger(Press)
 }
 
 func label(name string) string {

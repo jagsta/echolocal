@@ -1,5 +1,11 @@
 package update
 
+import (
+	"context"
+
+	"github.com/ygelfand/libcountertop/pkg/network/releases"
+)
+
 type Channel int
 
 const (
@@ -9,7 +15,7 @@ const (
 	Dev
 )
 
-const releases = "https://github.com/ygelfand/echolocal/releases"
+const repo = "https://github.com/ygelfand/echolocal"
 
 func (c Channel) Label() string {
 	switch c {
@@ -20,12 +26,15 @@ func (c Channel) Label() string {
 }
 
 // The GitHub REST API allows 60 unauthenticated requests an hour; asset downloads do not count.
-func (c Channel) URL() string {
-	switch c {
-	case Dev:
-		return releases + "/download/dev/manifest.json"
+func (c Channel) Manifest(ctx context.Context) (string, error) {
+	if c != Dev {
+		return repo + "/releases/latest/download/manifest.json", nil
 	}
-	return releases + "/latest/download/manifest.json"
+	tag, err := releases.Newest(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	return releases.Manifest(repo, tag), nil
 }
 
 func Channels() []Channel { return []Channel{Stable, Dev} }

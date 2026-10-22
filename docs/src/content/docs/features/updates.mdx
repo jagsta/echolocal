@@ -1,0 +1,43 @@
+---
+title: Updates
+description: Updating from Home Assistant or from the screen, and installing another version.
+---
+
+## From Home Assistant
+
+New versions show up under **Settings → Updates** through the device's **Firmware** entity.
+Install from there, or press **Check for updates** to look now.
+
+This is the only way on the Echo Dot.
+
+## From the screen
+
+On the Echo Shows,
+**Settings → System → Software update** shows the current version, **Check for updates**, and
+**Download and install** when an update is available.
+
+## Checks
+
+A few minutes after start, then daily. **Update status** shows what it's doing, and **Update
+outcome** fires when an update finishes or fails.
+
+## Update channel
+
+**Update channel** (`update_channel`), on the screen or in Home Assistant:
+
+- **Stable** (`stable`): releases
+- **Development** (`dev`): the latest builds, for trying fixes early
+
+Only newer builds are offered.
+
+## Other versions
+
+To go back to an earlier version, or try a particular one, install it by name. The list holds the
+ten latest releases and the ten latest development builds, leaving out any without a build for this
+device.
+
+- **In Home Assistant:** pick it in **Install version**, then press **Install selected version**.
+- **On the screen:** **Settings → System → Software update → Other versions**, then tap a version
+  and confirm.
+
+EchoLocal restarts on the version you picked.

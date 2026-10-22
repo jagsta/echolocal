@@ -224,7 +224,7 @@ func newToneCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "tone",
 		Short: "Generate a sine WAV as a stable acoustic reference",
-		Long: "Playback on the Echo Dot accepts 48000 Hz only, so use -r 48000 for anything\n" +
+		Long: "Playback on the device accepts 48000 Hz only, so use -r 48000 for anything\n" +
 			"destined for the device. Distinct -f2/-a2 make the two channels\n" +
 			"distinguishable, which is how the ch7/ch8 loopback was identified.",
 		RunE: func(cmd *cobra.Command, _ []string) error {

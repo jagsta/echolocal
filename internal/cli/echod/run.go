@@ -17,9 +17,9 @@ func newRunCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "run",
 		Short: "Run the device agent",
-		Long: "Plays the boot animation, then stays resident. echod is installed in place of\n" +
-			"Amazon's ledcontroller service, so init starts it from on post-fs-data and\n" +
-			"restarts it if it exits, and nothing else drives the ring.",
+		Long: "Plays the boot animation, then stays resident. init starts echod and restarts it\n" +
+			"if it exits. On the Echo Dot it runs in place of Amazon's ledcontroller service,\n" +
+			"so nothing else drives the ring.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			h := logging.Log.Open(cmd.ErrOrStderr())

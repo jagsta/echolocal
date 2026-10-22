@@ -57,7 +57,8 @@ func TestDuplicateObjectIDIsRejected(t *testing.T) {
 	}
 }
 
-func testEntitySet() (*Entities, *Select, *Number, *Light, *BinarySensor) {
+func testEntitySet(t *testing.T) (*Entities, *Select, *Number, *Light, *BinarySensor) {
+	t.Helper()
 	sel := &Select{
 		Base:    Base{ObjectID: "wake_word", Name: "Wake Word"},
 		Options: []string{"hey_jarvis", "okay_nabu"},
@@ -74,12 +75,14 @@ func testEntitySet() (*Entities, *Select, *Number, *Light, *BinarySensor) {
 	mute := &BinarySensor{Base: Base{ObjectID: "mute", Name: "Mute"}}
 
 	e := NewEntities()
-	e.Add(sel, num, light, mute)
+	if err := e.Add(sel, num, light, mute); err != nil {
+		t.Fatal(err)
+	}
 	return e, sel, num, light, mute
 }
 
 func TestListEntities(t *testing.T) {
-	ents, _, _, _, _ := testEntitySet()
+	ents, _, _, _, _ := testEntitySet(t)
 	_, peer := startServer(t, ents)
 	peer.hello()
 
@@ -122,7 +125,7 @@ func TestListEntities(t *testing.T) {
 }
 
 func TestSubscribeStatesDumpsCurrentValues(t *testing.T) {
-	ents, _, _, _, _ := testEntitySet()
+	ents, _, _, _, _ := testEntitySet(t)
 	_, peer := startServer(t, ents)
 	peer.hello()
 
@@ -149,7 +152,7 @@ func TestSubscribeStatesDumpsCurrentValues(t *testing.T) {
 }
 
 func TestSelectCommandInvokesCallback(t *testing.T) {
-	ents, sel, _, _, _ := testEntitySet()
+	ents, sel, _, _, _ := testEntitySet(t)
 	got := make(chan string, 1)
 	sel.OnCommand = func(v string) { got <- v }
 
@@ -167,7 +170,7 @@ func TestSelectCommandInvokesCallback(t *testing.T) {
 }
 
 func TestNumberCommandAppliesWithoutCallback(t *testing.T) {
-	ents, _, num, _, _ := testEntitySet()
+	ents, _, num, _, _ := testEntitySet(t)
 	_, peer := startServer(t, ents)
 	peer.hello()
 	peer.send(&api.SubscribeStatesRequest{})
@@ -191,7 +194,7 @@ func TestNumberCommandAppliesWithoutCallback(t *testing.T) {
 
 // Light commands are partial: unflagged fields must survive untouched.
 func TestLightCommandMergesPartialUpdate(t *testing.T) {
-	ents, _, _, light, _ := testEntitySet()
+	ents, _, _, light, _ := testEntitySet(t)
 	light.Set(LightState{On: true, Brightness: 0.8, Red: 1, Green: 0.5, Blue: 0})
 
 	_, peer := startServer(t, ents)
@@ -225,7 +228,7 @@ func TestLightCommandMergesPartialUpdate(t *testing.T) {
 }
 
 func TestStateChangePublishesToSubscribers(t *testing.T) {
-	ents, _, _, _, mute := testEntitySet()
+	ents, _, _, _, mute := testEntitySet(t)
 	_, peer := startServer(t, ents)
 	peer.hello()
 	peer.send(&api.SubscribeStatesRequest{})
@@ -248,7 +251,7 @@ func TestStateChangePublishesToSubscribers(t *testing.T) {
 // bindServer through leaves Home Assistant with only the states sent on connect: a value changed on
 // the device then shows up nowhere until the integration reloads.
 func TestChainedEntitiesStillPublish(t *testing.T) {
-	ents, _, _, _, mute := testEntitySet()
+	ents, _, _, _, mute := testEntitySet(t)
 
 	_, peer := startServer(t, Chain(ents, &VoiceSatellite{}))
 	peer.hello()
@@ -275,7 +278,9 @@ func TestButtonHasNoState(t *testing.T) {
 		OnPress: func() { pressed <- struct{}{} },
 	}
 	ents := NewEntities()
-	ents.Add(btn)
+	if err := ents.Add(btn); err != nil {
+		t.Fatal(err)
+	}
 
 	_, peer := startServer(t, ents)
 	peer.hello()
@@ -296,7 +301,9 @@ func TestButtonHasNoState(t *testing.T) {
 func TestSubDeviceOnListing(t *testing.T) {
 	sel := &Select{Base: Base{ObjectID: "mixing", DeviceID: 3}, Options: []string{"a"}}
 	ents := NewEntities()
-	ents.Add(sel)
+	if err := ents.Add(sel); err != nil {
+		t.Fatal(err)
+	}
 
 	_, peer := startServer(t, ents)
 	peer.hello()
@@ -318,7 +325,9 @@ func TestSubDeviceOnState(t *testing.T) {
 	sel.Set("a")
 
 	ents := NewEntities()
-	ents.Add(sel)
+	if err := ents.Add(sel); err != nil {
+		t.Fatal(err)
+	}
 
 	_, peer := startServer(t, ents)
 	peer.hello()
@@ -437,7 +446,9 @@ func TestTextCommandInvokesCallback(t *testing.T) {
 	text.OnCommand = func(v string) { got <- v }
 
 	ents := NewEntities()
-	ents.Add(text)
+	if err := ents.Add(text); err != nil {
+		t.Fatal(err)
+	}
 	_, peer := startServer(t, ents)
 	peer.hello()
 	peer.send(&api.TextCommandRequest{Key: text.Key(), State: "https://example/creds"})
@@ -453,7 +464,9 @@ func TestTextCommandInvokesCallback(t *testing.T) {
 func TestTextCommandAppliesWithoutCallback(t *testing.T) {
 	text := &Text{Base: Base{ObjectID: "oracle", Name: "Oracle"}}
 	ents := NewEntities()
-	ents.Add(text)
+	if err := ents.Add(text); err != nil {
+		t.Fatal(err)
+	}
 	_, peer := startServer(t, ents)
 	peer.hello()
 	peer.send(&api.SubscribeStatesRequest{})

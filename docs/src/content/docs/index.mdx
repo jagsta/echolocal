@@ -1,0 +1,129 @@
+---
+title: EchoLocal
+description: Turn an Amazon Echo Dot or Echo Show into a local Home Assistant device.
+template: splash
+hero:
+  title: EchoLocal
+  tagline: Turn an Amazon Echo Dot or Echo Show into a local Home Assistant voice assistant, speaker and display. One program in place of Amazon's, no cloud, no account.
+  image:
+    html: '<img src="/hero.png" alt="EchoLocal" width="1536" height="1024" />'
+  actions:
+    - text: Install EchoLocal
+      link: /start/devices/
+      icon: right-arrow
+    - text: Find a setting
+      link: /use/configuration/
+      icon: setting
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import shows from '../../assets/screens/shows.png';
+import dashboard from '../../assets/screens/dashboard.png';
+import showDash from '../../assets/screens/show-dash.png';
+import dots from '../../assets/screens/echolocal_dash_lit.png';
+
+<div class="stats">
+	<div><strong>4</strong><span>Echo models</span></div>
+	<div><strong>2</strong><span>wake words at once</span></div>
+	<div><strong>33</strong><span>visualizers</span></div>
+	<div><strong>37</strong><span>light ring effects</span></div>
+	<div><strong>0</strong><span>cloud accounts</span></div>
+</div>
+
+<Image src={shows} alt="An Echo Show 8 with the Digital VU visual behind the clock, and two Echo Show 5s running Matrix and Orb" class="screen-wide" />
+
+## What EchoLocal is
+
+EchoLocal replaces Amazon's services on the Echo with a single program that drives its speaker,
+microphones, buttons, light ring, screen and camera directly, and talks only to your Home Assistant.
+It speaks the ESPHome native API, so Home Assistant finds it like any ESPHome device.
+
+## Every Echo
+
+<CardGrid>
+	<Card title="Voice assistants" icon="comment">
+		Two wake words on the device, each with its own Assist pipeline. "Stop" works without one.
+		[Voice →](/features/voice/)
+	</Card>
+	<Card title="Speaker" icon="seti:audio">
+		A Home Assistant media player, Sendspin for Music Assistant, and Chromecast.
+		[Music →](/features/music/)
+	</Card>
+	<Card title="Timers, alarms, messages" icon="information">
+		From Home Assistant or by voice, with your own sounds.
+		[Messages →](/features/messages/)
+	</Card>
+	<Card title="Intercom" icon="phone">
+		Calls between Echos and LANovo displays on your network.
+		[Intercom →](/features/intercom/)
+	</Card>
+	<Card title="Bluetooth proxy" icon="random">
+		Extends Home Assistant's Bluetooth, with an iBeacon for room presence.
+	</Card>
+	<Card title="Updates" icon="rocket">
+		From Home Assistant's Updates page. [Updates →](/features/updates/)
+	</Card>
+</CardGrid>
+
+## Echo Dot
+
+Twelve light ring segments, 37 effects plus 11 that react to the room, and four buttons you can use
+in automations.
+
+<Image src={dots} alt="Three Echo Dots on the EchoLocal dashboard, each ring lit a different color" class="screen-wide" />
+
+[Echo Dot: buttons and light ring →](/use/dot/)
+
+## Echo Show
+
+<div class="showcase">
+	<div>
+		### Dashboards
+
+		A clock, the weather and your Home Assistant lights and switches, or pages laid out in
+		[Tessera](https://github.com/MaxGramser/homeassistant_espscreen).
+
+		[Dashboards →](/use/dashboards/)
+	</div>
+	<Image src={showDash} alt="The native dashboard on an Echo Show 8" class="screen" />
+</div>
+
+<img src="/anim/visual-wall.webp" alt="Six visuals: Synthwave, LCARS, Classic VU, Aurora, a Pip-Boy and a koi pond" class="screen-wide" width="978" height="412" />
+
+<CardGrid>
+	<Card title="Visuals and screen saver" icon="star">
+		33 audio visuals on the GPU, a clock in eight faces, and photos from Immich.
+		[Screen saver →](/use/screen-saver/)
+	</Card>
+	<Card title="Styles and themes" icon="seti:pipeline">
+		Nine styles and eighteen color themes. [Styles →](/use/styles/)
+	</Card>
+	<Card title="Casting" icon="laptop">
+		Chromecast with YouTube, YouTube TV and Prime Video, AirPlay mirroring, and a Bluetooth
+		speaker. [Music and casting →](/features/music/)
+	</Card>
+	<Card title="Camera" icon="seti:video">
+		RTSP with ONVIF discovery, and a snapshot camera in Home Assistant.
+		[Camera →](/features/camera/)
+	</Card>
+</CardGrid>
+
+## The EchoLocal integration
+
+Optional, from HACS: a card for every Echo, a dashboard with all of them, Fleet to compare and copy
+settings between them, turn history with recordings, a wake word library, custom tones, groups and
+health. It works with [LANovo](https://www.lanovo.link) displays too.
+
+<Image src={dashboard} alt="The EchoLocal dashboard with Echo Dots and Echo Shows" class="screen-wide" />
+
+[The integration →](/start/integration/)
+
+## Get started
+
+<CardGrid>
+	<LinkCard title="Supported devices" description="Which Echos EchoLocal runs on." href="/start/devices/" />
+	<LinkCard title="Install" description="Unlock the Echo, then one command." href="/start/before/" />
+	<LinkCard title="Find a setting" description="Where every setting lives, on the screen and in Home Assistant." href="/use/configuration/" />
+</CardGrid>

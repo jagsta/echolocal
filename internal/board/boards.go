@@ -2,7 +2,7 @@ package board
 
 import "strings"
 
-var All = []Board{Biscuit, Crown, Checkers, Cronos, Donut, Rook, Radar}
+var All = []Board{Biscuit, Crown, Checkers, Cronos, Athena, Donut, Rook, Radar}
 
 func For(device string) (Board, bool) {
 	device = strings.TrimSpace(device)

@@ -1,3 +1,5 @@
+//go:build !board_athena
+
 package alsps
 
 import (
@@ -12,7 +14,7 @@ import (
 
 	"github.com/ygelfand/libcountertop/pkg/system/metrics"
 
-	"github.com/ygelfand/echolocal/internal/lib/input"
+	"github.com/ygelfand/libcountertop/pkg/input"
 )
 
 var current atomic.Pointer[Sensor]

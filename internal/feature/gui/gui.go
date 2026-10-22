@@ -16,6 +16,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/feature/assistant"
+	"github.com/ygelfand/echolocal/internal/feature/cameras"
 	"github.com/ygelfand/echolocal/internal/feature/dashboard"
 	"github.com/ygelfand/echolocal/internal/feature/drawer"
 	"github.com/ygelfand/echolocal/internal/feature/firmware"
@@ -24,6 +25,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/feature/idle"
 	"github.com/ygelfand/echolocal/internal/feature/media"
 	"github.com/ygelfand/echolocal/internal/feature/message"
+	"github.com/ygelfand/echolocal/internal/feature/nws"
 	"github.com/ygelfand/echolocal/internal/feature/poster"
 	"github.com/ygelfand/echolocal/internal/feature/privacy"
 	"github.com/ygelfand/echolocal/internal/feature/screen"
@@ -96,8 +98,10 @@ var Get = sync.OnceValue(func() *screens.App {
 			Logo:          echoui.Logo(),
 		}),
 		Forecast: weather.Get(),
+		Warnings: nws.Get(),
 
 		WeatherEntities: func() shell.View { return settings.WeatherEntities() },
+		CamerasPage:     func() shell.View { return cameras.Get().Page() },
 		Player:          media.Get(),
 		PlayerPage:      media.Page,
 		MediaVolume:     sharedvolume.For(volume.Get(), config.StreamMedia),
@@ -114,6 +118,8 @@ var Get = sync.OnceValue(func() *screens.App {
 			return screens.Marks{Mic: m.MicMuted, Camera: m.CameraBlocked}
 		},
 		Redraws: []screens.Watch{
+			screens.On(&firmware.Get().Offered),
+			screens.On(&firmware.Get().Listed),
 			screens.On(&privacy.Get().Changed),
 			screens.On(&web.Get().Offered),
 		},

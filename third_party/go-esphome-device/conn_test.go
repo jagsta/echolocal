@@ -62,13 +62,24 @@ func startServer(t *testing.T, h Handler) (*Server, *testPeer) {
 		<-done
 	})
 
-	return srv, &testPeer{t: t, transport: wire.NewPlaintext(nc), conn: nc}
+	return srv, &testPeer{t: t, transport: wire.NewPlaintext(nc), conn: nc, addr: ln.Addr().String()}
 }
 
 type testPeer struct {
 	t         *testing.T
 	transport wire.Transport
 	conn      net.Conn
+	addr      string
+}
+
+func (p *testPeer) another() *testPeer {
+	p.t.Helper()
+	nc, err := net.Dial("tcp", p.addr)
+	if err != nil {
+		p.t.Fatalf("dial: %v", err)
+	}
+	p.t.Cleanup(func() { _ = nc.Close() })
+	return &testPeer{t: p.t, transport: wire.NewPlaintext(nc), conn: nc, addr: p.addr}
 }
 
 func (p *testPeer) send(msg proto.Message) {
@@ -227,6 +238,87 @@ func TestBroadcastRequiresSubscription(t *testing.T) {
 	}
 	if _, ok := peer.recv().(*api.PingRequest); !ok {
 		t.Fatal("expected the broadcast to arrive")
+	}
+}
+
+func TestReconnectDuringAMessageAnswersItFirst(t *testing.T) {
+	var srv *Server
+	h := HandlerFunc(func(_ context.Context, c *Conn, msg proto.Message) error {
+		if _, ok := msg.(*api.ListEntitiesRequest); !ok {
+			return nil
+		}
+		srv.Reconnect()
+		return c.Send(&api.ListEntitiesDoneResponse{})
+	})
+
+	srv, peer := startServer(t, h)
+	peer.hello()
+	peer.send(&api.ListEntitiesRequest{})
+	if _, ok := peer.recv().(*api.ListEntitiesDoneResponse); !ok {
+		t.Fatal("the answer was lost to the reconnect")
+	}
+
+	_ = peer.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := peer.transport.Read(); err == nil {
+		t.Error("the connection stayed open after the reconnect")
+	}
+}
+
+func TestShuttingDownDuringAMessageAnswersItFirst(t *testing.T) {
+	stop := make(chan struct{})
+	h := HandlerFunc(func(_ context.Context, c *Conn, msg proto.Message) error {
+		if _, ok := msg.(*api.ListEntitiesRequest); !ok {
+			return nil
+		}
+		close(stop)
+		time.Sleep(50 * time.Millisecond)
+		return c.Send(&api.ListEntitiesDoneResponse{})
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{Info: testInfo(), Handler: h, Logger: slog.New(slog.DiscardHandler)}
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		<-stop
+		cancel()
+	}()
+	go func() { _ = srv.Serve(ctx, ln) }()
+
+	nc, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = nc.Close() })
+	peer := &testPeer{t: t, conn: nc, transport: wire.NewPlaintext(nc)}
+	peer.hello()
+	peer.send(&api.ListEntitiesRequest{})
+	if _, ok := peer.recv().(*api.ListEntitiesDoneResponse); !ok {
+		t.Fatal("the answer was lost to the shutdown")
+	}
+}
+
+func TestReconnectClosesAnIdleConnection(t *testing.T) {
+	srv, peer := startServer(t, nil)
+	peer.hello()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		srv.mu.Lock()
+		n := len(srv.conns)
+		srv.mu.Unlock()
+		if n > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	srv.Reconnect()
+
+	_ = peer.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := peer.transport.Read(); err == nil {
+		t.Error("the idle connection stayed open after the reconnect")
 	}
 }
 

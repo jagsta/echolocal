@@ -24,6 +24,7 @@ func ids(ds []esphome.Device) []uint32 {
 func TestTheDotAnnouncesEverySubDevice(t *testing.T) {
 	got := ids(nativeapi.SubDevices(api.Devices("dot"), component.Default().Entities()))
 	want := []uint32{component.DeviceRing, component.DeviceMicrophone, component.DevicePlayback,
+		component.DeviceVoice, component.DeviceFrontend,
 		component.AssistantDevice(0), component.AssistantDevice(1)}
 	if !slices.Equal(got, want) {
 		t.Errorf("announced %v, want %v", got, want)

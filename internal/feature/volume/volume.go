@@ -10,7 +10,6 @@ import (
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
-	"github.com/ygelfand/echolocal/internal/feature/feedback"
 	"github.com/ygelfand/echolocal/internal/feature/media"
 	"github.com/ygelfand/echolocal/internal/feature/shell"
 )
@@ -41,57 +40,26 @@ func Get() *Volume {
 	once.Do(func() {
 		shared = &Volume{card: sharedview.NewCard(shell.Get())}
 
-		media.Get().Volume.Listen(func(int) { shared.changed(config.StreamMain) })
 		media.Get().Levels.Changed.Listen(func(c Change) { shared.changed(c.Stream) })
-		media.Get().SetTurns(shared.turn)
+		media.Get().SetScreen(shared)
 	})
 	return shared
 }
 
+func (v *Volume) Selected() (config.Stream, bool) { return v.card.Selected() }
+
+func (v *Volume) Top() any { return shell.Get().Top() }
+
 func (v *Volume) Name() string { return "volume" }
 
-func (v *Volume) Level(s config.Stream) int {
-	if s == config.StreamMain {
-		return media.Get().Step() * 100 / media.VolumeSteps
-	}
-	return media.Get().Levels.Level(s)
-}
+func (v *Volume) Level(s config.Stream) int { return media.Get().Levels.Level(s) }
 
 func (v *Volume) Set(s config.Stream, level int) {
 	level = sharedvolume.Clamp(level)
 	if v.Level(s) == level {
 		return
 	}
-
-	if s == config.StreamMain {
-		media.Get().Set((level*media.VolumeSteps + 50) / 100)
-		return
-	}
 	media.Get().Levels.Set(s, level)
-}
-
-func (v *Volume) turn(delta int) bool {
-	s, ok := v.card.Selected()
-	if !ok {
-		s, ok = wanted()
-	}
-	if !ok || s == config.StreamMain {
-		return false
-	}
-
-	v.Set(s, v.Level(s)+delta*sharedvolume.Step)
-	feedback.Preview(s)
-	return true
-}
-
-type wants interface{ Wants() (config.Stream, bool) }
-
-func wanted() (config.Stream, bool) {
-	v, ok := shell.Get().Top().(wants)
-	if !ok {
-		return "", false
-	}
-	return v.Wants()
 }
 
 func (v *Volume) changed(s config.Stream) {

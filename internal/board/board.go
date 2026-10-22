@@ -1,6 +1,10 @@
 package board
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/ygelfand/echolocal/internal/lib/asp"
+)
 
 type Cap uint32
 
@@ -16,8 +20,6 @@ const (
 	Camera
 
 	MuteLight
-
-	ASP
 
 	MicMutesCamera
 )
@@ -78,7 +80,15 @@ type Board struct {
 
 	MaxFPS int
 
+	Tuning asp.Files
+
+	Stereo bool
+
+	DecodeWidth, DecodeHeight int
+
 	CameraWidth, CameraHeight int
+	CameraSizes               []string
+	SubWidth                  int
 
 	Service     string
 	ServiceName string

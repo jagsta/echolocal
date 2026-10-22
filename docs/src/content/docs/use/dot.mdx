@@ -1,0 +1,103 @@
+---
+title: "Echo Dot: buttons and light ring"
+description: What the Echo Dot's buttons do, and how to set up its light ring.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The Echo Dot (2nd gen) has no screen. Its four buttons and its twelve-segment light ring are how it
+talks back, and everything about it is set in Home Assistant or on the
+[EchoLocal card](/start/integration/#the-card).
+
+## Buttons
+
+| Button | Tap | Hold |
+|---|---|---|
+| **Action** (the dot) | Stop whatever is going on: an alarm, a timer, the assistant, a sound, then music. With nothing to stop, talk to assistant 1 | Snooze a ringing alarm (stop it if it can't snooze). Otherwise talk to assistant 2 |
+| **Microphone off** | Mute or unmute the microphones | Plays the hold sound |
+| **Volume up**, **Volume down** | One step louder or quieter; keep holding to keep going | |
+
+While an intercom call is ringing, **Action** answers it and **Volume down** declines it.
+
+The volume buttons change the volume of what you're hearing: a ringing alarm or timer, then the
+assistant or a call, then music, and the main volume when nothing is playing. The ring shows the
+volume they change. Set **Volume buttons** (`volume_buttons`) to **Main volume** in Home Assistant
+to have them change the main volume only.
+
+A tap on **Action** takes effect 300 ms after you let go, in case a second tap follows. Double and
+triple taps do nothing on their own; use them in automations.
+
+### Buttons in automations
+
+Each button is an event entity, **Action button**, **Mute button**, **Volume up button** and
+**Volume down button**, that fires `press` or `hold`. **Action button** also fires `double` and
+`triple` (three or more taps). The button still does its usual job; the event comes as well. For
+example, holding Volume up to toggle a lamp, on a Dot named Kitchen:
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.kitchen_volume_up_button
+    attribute: event_type
+    to: hold
+actions:
+  - action: light.toggle
+    target:
+      entity_id: light.kitchen_lamp
+```
+
+## The light ring
+
+The ring is a light in Home Assistant, **LED ring** (`light.<device>_ring_led_ring`). Turn it on with a
+color and brightness, or pick an effect. The twelve segments are also lights of their own, **LED
+ring segment 1** to **12**; they're disabled until you enable them on the device page.
+
+The ring also shows what the Dot is doing. Each of these is a select. The first seven offer the effects below plus
+**None** (Thinking and Replying also offer **Default**); **Ring follows the room** offers the room
+effects, and **Mute LED brightness** is Dim or Bright:
+
+| What | Name | Default | Entity |
+|---|---|---|---|
+| Assistant heard its wake word | Wake word effect | Pulse | `select.<device>_assistant_N_wake_word_effect` |
+| Assistant is thinking | Thinking effect | Default | `select.<device>_assistant_N_thinking_effect` |
+| Assistant is replying | Replying effect | Default | `select.<device>_assistant_N_replying_effect` |
+| A request failed | Ring on failure | Alert | `select.<device>_ring_ring_on_failure` |
+| Microphones are muted | Ring while muted | None | `select.<device>_ring_ring_while_muted` |
+| An intercom call is ringing | Ring for an incoming call | Beacon | `select.<device>_ring_ring_for_an_incoming_call` |
+| An intercom call is up | Ring during a call | Pulse | `select.<device>_ring_ring_during_a_call` |
+| Always, following the room's sound | Ring follows the room | None | `select.<device>_ring_ring_follows_the_room` |
+| The red mute light | Mute LED brightness | Bright | `select.<device>_microphone_mute_led_brightness` |
+
+<Aside type="tip">
+Effects use the ring's color. Set the color on **LED ring** first, then pick the effect.
+Effects with their own palette, like Fireplace or Rainbow, ignore it.
+</Aside>
+
+### Effects
+
+| Kind | Effects |
+|---|---|
+| Calm | Pulse, Heartbeat, Ripple, Standing Wave, Twinkle, Crimson Heartbeat, Aurora Pulse, Candle, Fireplace, Embers, Aurora, Sunset Drift, Ocean Ripple, Rainbow Twinkle, Forest Twinkle |
+| Moving | Comet, Chase, Scanner, Pinwheel, Spiral, Wipe, Helix, Orbits, Bounce, Spring, Rainbow, Fire Comet, Ice Comet, Rainbow Chase, Ice Scanner, Rainbow Pinwheel, Sunset Spiral, Rainbow Orbits, DNA, Pac-Man |
+| Attention | Alert, Beacon |
+
+### Following the room
+
+**Ring follows the room** keeps the ring moving with the sound in the room,
+whatever else it's doing:
+
+| Effect | Does |
+|---|---|
+| Room Compass | Points at where the sound is coming from |
+| Beam Compass | Points where the microphones are listening |
+| Room Glow | Lights more of the ring as the room gets louder |
+| Room Meter, Room Ocean, Room VU | A level meter around the ring, in the ring's color, ocean blues or VU green to red |
+| Room Fire | Flames that flare with the sound |
+| Room Spin | Spins faster as it gets louder |
+| Room Aurora, Room Twinkle, Room Embers | Their calm effects, livelier when it's loud |
+
+## Volume and sounds
+
+The Dot's volume, cue sounds and alert sounds are on [Settings in Home Assistant](/use/entities/#speaker).
+Sounds for alarms and timers are on [Messages, timers and alarms](/features/messages/), and your
+own sounds on [Custom tones](/features/tones/).

@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ["[0-9]*"]
+    tags: ["[0-9]*", "!*_local"]
 
 permissions:
   contents: write
@@ -19,17 +19,43 @@ jobs:
           fetch-depth: 0
 
       - uses: actions/setup-go@v7
+        id: go
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ steps.go.outputs.go-version }}-check-
+          restore-keys: go-${{ runner.os }}-${{ steps.go.outputs.go-version }}-check-
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ steps.go.outputs.go-version }}-show-crown-
+          restore-keys: go-${{ runner.os }}-${{ steps.go.outputs.go-version }}-show-crown-
+
+      - name: upx version
+        id: upx
+        run: echo "version=$(sed -n 's/^UPX_VERSION := //p' Makefile)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: bin/upx-${{ steps.upx.outputs.version }}/build/upx
+          key: upx-${{ runner.os }}-${{ steps.upx.outputs.version }}
 
       - name: install Android NDK
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
 
-      - name: install upx
-        run: sudo apt-get update && sudo apt-get install -y upx-ucl
+      - name: build upx
+        run: make upx
 
       - uses: goreleaser/goreleaser-action@v7
         with:
@@ -37,4 +63,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACK: upx
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          VERSION: ${{ github.ref_name }}
+          PACK: bin/upx-4.2.4/build/upx --lzma -2

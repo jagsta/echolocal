@@ -1,0 +1,393 @@
+---
+title: All settings and defaults
+description: Every setting, with its default, its choices and its Home Assistant entity, generated from the code.
+---
+
+Every setting on the device, grouped by feature, with the value it starts at and what it can be
+set to. The **Entity** column is the entity id Home Assistant gives it by default, with `<device>`
+standing for your device's name. A model in brackets means the setting exists only there.
+
+For what each setting does, see [Settings on the screen](/use/settings/) and
+[Settings in Home Assistant](/use/entities/).
+
+## Display
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Brightness | 70 % | 0 to 100 % | `number.<device>_screen_brightness` |
+| Hide dock after | Never | 5 seconds, 10 seconds, 15 seconds, 30 seconds, 1 minute, Never | `select.<device>_screen_hide_dock_after` |
+| Dock location | Right | Left, Right, Top, Bottom | `select.<device>_screen_dock_location` |
+| Privacy marks | On | On, Off | `switch.<device>_screen_privacy_marks` |
+| Alert style | Banner | Banner, Card, Full screen, Toast | `select.<device>_screen_alert_style` |
+| Keyboard size | Compact | Compact, Standard, Large | `select.<device>_screen_keyboard_size` |
+| Language | English | English | `select.<device>_screen_language` |
+| Auto brightness | On | On, Off | `switch.<device>_screen_auto_brightness` |
+| Size | mini | mini, compact, medium, large, xlarge | `select.<device>_screen_size` |
+| Style | standard | standard, material, glass, eink, metro, terminal, hifi, neon, skeuo | `select.<device>_screen_style` |
+| Timer style | Bar | Bar, Banner, Dial, Full screen, Clock face, Corner | `select.<device>_screen_timer_style` |
+| Theme | Default | Default, Midnight, Nocturne, Slate, Ember, Forest, Ocean, Plum, Carbon, Phosphor, Amber, Graphite, Synthwave, Paper, Linen, Mist, Bloom, Braun, Ink, Custom | `select.<device>_screen_theme` |
+| Custom theme accent | #2f6fdb | Text | `text.<device>_screen_custom_theme_accent` |
+| Custom theme second accent | #7a5af0 | Text | `text.<device>_screen_custom_theme_second_accent` |
+| Custom theme background | #f7f5f1 | Text | `text.<device>_screen_custom_theme_background` |
+| Custom theme secondary text | #6d7480 | Text | `text.<device>_screen_custom_theme_secondary_text` |
+| Custom theme cards | #ffffff | Text | `text.<device>_screen_custom_theme_cards` |
+| Custom theme text | #22252a | Text | `text.<device>_screen_custom_theme_text` |
+
+## Screen saver
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Idle screen after | 1 minute | 30 seconds, 1 minute, 2 minutes, 5 minutes, 15 minutes, Never | `select.<device>_screen_idle_screen_after` |
+| Idle clock horizontal position | Random | Left, Center, Right, Random | `select.<device>_screen_idle_clock_horizontal_position` |
+| Idle clock face | Plain | None, Plain, Stack, Cards, Analog, Analog seconds, Segments, Words, Overlap | `select.<device>_screen_idle_clock_face` |
+| Close paused player after | 5 minutes | 1 minute, 3 minutes, 5 minutes, 10 minutes, 15 minutes, Never | `select.<device>_screen_close_paused_player_after` |
+| Idle clock vertical position | Random | Top, Center, Bottom, Random | `select.<device>_screen_idle_clock_vertical_position` |
+| Screen saver mode | Native | Native, Tessera | `select.<device>_screen_screen_saver_mode` |
+| Idle clock size | Large | Nano, Micro, Mini, Small, Medium, Large | `select.<device>_screen_idle_clock_size` |
+| Idle visual 1 | None | None, any [visual](/use/visuals/) | `select.<device>_screen_idle_visual_1` |
+| Idle visual 1 listens to | Microphone and speaker | Microphone and speaker, Microphone, Speaker | `select.<device>_screen_idle_visual_1_listens_to` |
+| Idle visual 2 | None | None, any [visual](/use/visuals/) | `select.<device>_screen_idle_visual_2` |
+| Idle visual 2 listens to | Microphone and speaker | Microphone and speaker, Microphone, Speaker | `select.<device>_screen_idle_visual_2_listens_to` |
+| Night mode after | 5 minutes | 1 minute, 5 minutes, 15 minutes, 30 minutes | `select.<device>_screen_night_mode_after` |
+| Night mode below | 5 lx | 0 to 100 lx | `number.<device>_screen_night_mode_below` |
+| Night mode | Dim to a clock | Nothing, Dim, Dim to a clock, Turn off the screen | `select.<device>_screen_night_mode` |
+
+## Clock
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Clock horizontal position | Center | Left, Center, Right | `select.<device>_screen_clock_horizontal_position` |
+| Clock color | Theme | Theme, Amber, Red, Green, Cyan, Blue, Violet, Pink | `select.<device>_screen_clock_color` |
+| Clock date | On | On, Off | `switch.<device>_screen_clock_date` |
+| Clock face | Plain | Plain, Stack, Cards, Analog, Analog seconds, Segments, Words, Overlap | `select.<device>_screen_clock_face` |
+| Clock format | 24 hour | 24 hour, 12 hour | `select.<device>_screen_clock_format` |
+| Clock vertical position | Center | Top, Center, Bottom | `select.<device>_screen_clock_vertical_position` |
+| Clock size | Large | Nano, Micro, Mini, Small, Medium, Large | `select.<device>_screen_clock_size` |
+
+## Visuals
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Visual | Orb | any [visual](/use/visuals/) | `select.<device>_screen_visual` |
+| Visual frame cap | 60 | 10, 15, 20, 30, 45, 60 | `select.<device>_screen_visual_frame_cap` |
+| Visual label | EchoLocal | Text | `text.<device>_screen_visual_label` |
+| Visual seed | 0 | 0 to 1024 | `number.<device>_screen_visual_seed` |
+| Visualizer lift | 0 dB (Echo Show 5), 10 dB (Echo Show 8 (2nd gen)) | 0 to 40 dB | `number.<device>_screen_visualizer_lift` |
+
+## Weather
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Weather alerts | Off | On, Off | `switch.<device>_screen_weather_alerts` |
+| Dashboard weather horizontal position | Right | Left, Center, Right | `select.<device>_screen_dashboard_weather_horizontal_position` |
+| Animate dashboard weather | On | On, Off | `switch.<device>_screen_animate_dashboard_weather` |
+| Weather on dashboard | On | On, Off | `switch.<device>_screen_weather_on_dashboard` |
+| entity | — | Text | On the screen only |
+| Dashboard weather look | Compact | Compact, Stack, Icon, Words, Card, Detail | `select.<device>_screen_dashboard_weather_look` |
+| Dashboard weather vertical position | Top | Top, Center, Bottom | `select.<device>_screen_dashboard_weather_vertical_position` |
+| Radar starting range | 200 mi | 50 mi, 100 mi, 200 mi, 300 mi, 400 mi, 600 mi, 800 mi | `select.<device>_screen_radar_starting_range` |
+| Radar source | Auto | Auto, NWS, RainViewer | `select.<device>_screen_radar_source` |
+| Screen saver weather horizontal position | Right | Left, Center, Right | `select.<device>_screen_screen_saver_weather_horizontal_position` |
+| Animate screen saver weather | On | On, Off | `switch.<device>_screen_animate_screen_saver_weather` |
+| Screen saver weather look | Compact | Compact, Stack, Icon, Words, Card, Detail | `select.<device>_screen_screen_saver_weather_look` |
+| Screen saver weather vertical position | Top | Top, Center, Bottom | `select.<device>_screen_screen_saver_weather_vertical_position` |
+| Screen saver weather size | Small | Nano, Micro, Mini, Small, Medium, Large | `select.<device>_screen_screen_saver_weather_size` |
+| Themed screen saver weather colors | Off | On, Off | `switch.<device>_screen_themed_screen_saver_weather_colors` |
+| Weather on screen saver | Off | On, Off | `switch.<device>_screen_weather_on_screen_saver` |
+| Dashboard weather size | Small | Nano, Micro, Mini, Small, Medium, Large | `select.<device>_screen_dashboard_weather_size` |
+| Themed dashboard weather colors | Off | On, Off | `switch.<device>_screen_themed_dashboard_weather_colors` |
+
+## Wallpaper
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Poster | Off | On, Off | `switch.<device>_screen_poster` |
+| Poster changes | Hourly | Never, On each wake, Hourly, Daily | `select.<device>_screen_poster_changes` |
+
+## Photos
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Photo albums | — | Text | `text.<device>_screen_photo_albums` |
+| Photos favorites only | Off | On, Off | `switch.<device>_screen_photos_favorites_only` |
+| Photo interval | 30 seconds | 10 seconds, 15 seconds, 30 seconds, 1 minute, 2 minutes, 5 minutes | `select.<device>_screen_photo_interval` |
+| Immich API key | — | Text | `text.<device>_screen_immich_api_key` |
+| Photo memories first | On | On, Off | `switch.<device>_screen_photo_memories_first` |
+| Photos app motion | On | On, Off | `switch.<device>_screen_photos_app_motion` |
+| Wallpaper motion | Off | On, Off | `switch.<device>_screen_wallpaper_motion` |
+| Photo screen saver motion | On | On, Off | `switch.<device>_screen_photo_screen_saver_motion` |
+| Photo people | — | Text | `text.<device>_screen_photo_people` |
+| Immich server | — | Text | `text.<device>_screen_immich_server` |
+| Photo tags | — | Text | `text.<device>_screen_photo_tags` |
+
+## Calendar
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| entities | — | Text | On the screen only |
+| span | 7 days | On, Off | On the screen only |
+
+## Shopping list
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| completed | off | On, Off | On the screen only |
+| entity | — | Text | On the screen only |
+
+## Cameras
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Refresh | 5 s | 0 to 60 s | `number.<device>_refresh` |
+| Auto paginate | 0 s | 0 to 120 s | `number.<device>_auto_paginate` |
+| Thumbnail size | 3 | 1 to 5 | `number.<device>_thumbnail_size` |
+| Dashboard tab | Off | On, Off | `switch.<device>_dashboard_tab` |
+| Home Assistant URL | — | Text | `text.<device>_home_assistant_url` |
+
+## Apps
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| dock | player,calls | Text | On the screen only |
+| order | — | Text | On the screen only |
+
+## Media
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Music ducking | -15 dB | -40 to -3 dB | `number.<device>_playback_music_ducking` |
+| Volume buttons | What's playing | Main volume, What's playing | `select.<device>_playback_volume_buttons` |
+
+## Sendspin
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Sendspin | Off | On, Off | `switch.<device>_playback_sendspin` |
+
+## Cast receiver
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Prime Video persistent registration (Echo Shows) | Off | On, Off | `switch.<device>_playback_prime_video_persistent_registration` |
+| Prime Video skip intro (Echo Shows) | Off | On, Off | `switch.<device>_playback_prime_video_skip_intro` |
+| Cast receiver | Off | On, Off | `switch.<device>_playback_cast_receiver` |
+| YouTube lounge | Always | Always, On demand | `select.<device>_playback_youtube_lounge` |
+| YouTube live delay (Echo Shows) | 10 s | 4 to 60 s | `number.<device>_playback_youtube_live_delay` |
+| YouTube SponsorBlock categories (Echo Shows) | sponsor | Text | `text.<device>_playback_youtube_sponsorblock_categories` |
+
+## AirPlay
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| AirPlay | Off | On, Off | `switch.<device>_playback_airplay` |
+
+## Bluetooth
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Bluetooth proxy | Off | On, Off | `switch.<device>_bluetooth_proxy` |
+| Bluetooth scanning | 9% | 9%, 5%, 2%, 1% | `select.<device>_bluetooth_scanning` |
+| Bluetooth speaker (Echo Shows) | Off | On, Off | `switch.<device>_bluetooth_speaker` |
+
+## Intercom
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Auto-answer API calls | Off | On, Off | `switch.<device>_auto_answer_api_calls` |
+| Auto-answer from | Everyone | Everyone, Selected | `select.<device>_auto_answer_from` |
+| Auto-answer panels | — | Text | `text.<device>_auto_answer_panels` |
+| Auto-answer users | — | Text | `text.<device>_auto_answer_users` |
+| Auto-answer calls | Off | On, Off | `switch.<device>_auto_answer_calls` |
+| Auto-answer with camera on | Off | On, Off | `switch.<device>_auto_answer_with_camera_on` |
+| Receive broadcasts | On | On, Off | `switch.<device>_receive_broadcasts` |
+| Incoming calls | On | On, Off | `switch.<device>_incoming_calls` |
+| Pause wake word during calls | On | On, Off | `switch.<device>_pause_wake_word_during_calls` |
+| Ring tone | Ring | None, Chirp, Ding, Rise, Timer, Trouble, Ring, Ringback | `select.<device>_ring_tone` |
+| Ringback tone | Ringback | None, Chirp, Ding, Rise, Timer, Trouble, Ring, Ringback | `select.<device>_ringback_tone` |
+| Call video stream (Echo Shows) | Main | Main, Sub | `select.<device>_call_video_stream` |
+| Video ring tone | Ring | None, Chirp, Ding, Rise, Timer, Trouble, Ring, Ringback | `select.<device>_video_ring_tone` |
+
+## Alerts and alarms
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Alert chime (Echo Shows) | Trouble | None, Chirp, Ding, Rise, Timer, Trouble | `select.<device>_playback_alert_chime` |
+| Info chime (Echo Shows) | Ding | None, Chirp, Ding, Rise, Timer, Trouble | `select.<device>_playback_info_chime` |
+| Timer rings for | 15 minutes | 1 minute, 5 minutes, 15 minutes, 30 minutes | `select.<device>_playback_timer_rings_for` |
+| Success chime (Echo Shows) | Chirp | None, Chirp, Ding, Rise, Timer, Trouble | `select.<device>_playback_success_chime` |
+| Timer sound | Timer | None, Chirp, Ding, Rise, Timer, Trouble | `select.<device>_playback_timer_sound` |
+| Wake light (Echo Shows) | Sunrise | Sunrise, White, Ember | `select.<device>_playback_wake_light` |
+| Warning chime (Echo Shows) | Rise | None, Chirp, Ding, Rise, Timer, Trouble | `select.<device>_playback_warning_chime` |
+
+## Sound cues
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Device chime | Chirp | None, Chirp, Ding, Rise | `select.<device>_playback_device_chime` |
+| Cancellation sound | Cancel | None, Chirp, Ding, Rise, Cancel | `select.<device>_playback_cancellation_sound` |
+| Failure sound | Trouble | None, Chirp, Ding, Rise, Timer, Trouble | `select.<device>_playback_failure_sound` |
+| Mute hold sound | Mute hold | None, Chirp, Ding, Rise, Mute hold | `select.<device>_playback_mute_hold_sound` |
+
+## Microphones
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Microphone mute | Off | On, Off | `switch.<device>_microphone_microphone_mute` |
+| Microphone echo cancellation | On | On, Off | `switch.<device>_microphone_microphone_echo_cancellation` |
+| Microphone gain | 20 dB | 0 to 59 dB | `number.<device>_microphone_microphone_gain` |
+| Microphone leveling | On | On, Off | `switch.<device>_microphone_microphone_leveling` |
+| Microphone mixing | Center mic | Center mic, Delay and sum, Beamformer (where the Echo's own beamformer tuning loads) | `select.<device>_microphone_microphone_mixing` |
+| Room sensitivity | 8 dB | 4 to 20 dB | `number.<device>_microphone_room_sensitivity` |
+| Mute LED brightness | — | Dim, Bright | `select.<device>_microphone_mute_led_brightness` |
+| Mute sound | Mute tones | None, Chirp, Ding, Rise, Mute tones | `select.<device>_microphone_mute_sound` |
+| Stop word sensitivity | 0.7 | 0.5 to 1 | `number.<device>_microphone_stop_word_sensitivity` |
+
+## Voice triggers
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Broadcast a message | On | On, Off | `switch.<device>_voice_triggers_broadcast_a_message` |
+| Call a device | On | On, Off | `switch.<device>_voice_triggers_call_a_device` |
+| All actions | On | On, Off | `switch.<device>_voice_triggers_all_actions` |
+| Mirror (Echo Shows) | On | On, Off | `switch.<device>_voice_triggers_mirror` |
+| Radar (Echo Shows) | On | On, Off | `switch.<device>_voice_triggers_radar` |
+| All commands (Echo Shows) | On | On, Off | `switch.<device>_voice_triggers_all_commands` |
+
+## Voice assistants
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Follow-up time | 0 s | 0 to 30 s | `number.<device>_assistant_N_follow_up_time` |
+| Recordings kept | 0 | 0 to 10 | `number.<device>_assistant_N_recordings_kept` |
+| Max listening time | 15 s | 5 to 60 s | `number.<device>_assistant_N_max_listening_time` |
+| Max thinking time | 90 s | 5 to 300 s | `number.<device>_assistant_N_max_thinking_time` |
+| Reply buffer | 650 ms | 0 to 3000 ms | `number.<device>_assistant_N_reply_buffer` |
+| Reply delivery | Download first | Download first, Stream | `select.<device>_assistant_N_reply_delivery` |
+| Replying effect (Echo Dot) | Default | Default, None, any [light ring effect](/use/dot/#effects) | `select.<device>_assistant_N_replying_effect` |
+| Thinking effect (Echo Dot) | Default | Default, None, any [light ring effect](/use/dot/#effects) | `select.<device>_assistant_N_thinking_effect` |
+| Wake word effect (Echo Dot) | Pulse | None, any [light ring effect](/use/dot/#effects) | `select.<device>_assistant_N_wake_word_effect` |
+| Wake word sensitivity | 0.85 | 0.5 to 0.99 | `number.<device>_assistant_N_wake_word_sensitivity` |
+| Wake word tone | Chirp | None, Chirp, Ding, Rise | `select.<device>_assistant_N_wake_word_tone` |
+
+## Camera
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Anti-banding (Echo Shows) | Auto | Auto, Off, 50 Hz, 60 Hz | `select.<device>_camera_anti_banding` |
+| Brightness (Echo Shows) | Medium (Echo Show 5), 5 (Echo Show 8 (2nd gen)) | Low, Medium, High | `select.<device>_camera_brightness` |
+| Contrast (Echo Shows) | Medium (Echo Show 5), 5 (Echo Show 8 (2nd gen)) | Low, Medium, High | `select.<device>_camera_contrast` |
+| Effect (Echo Shows) | None | None, Mono, Negative, Sepia, Aqua, Whiteboard, Blackboard | `select.<device>_camera_effect` |
+| Exposure compensation (Echo Shows) | 0 | -3 to 3 | `number.<device>_camera_exposure_compensation` |
+| Frame rate (Echo Shows) | 30 fps | 15 to 30 fps | `number.<device>_camera_frame_rate` |
+| Auto frame rate (Echo Shows) | On | On, Off | `switch.<device>_camera_auto_frame_rate` |
+| Hue (Echo Show 5, Echo Show 5 (2nd gen), Echo Show 8) | Medium | Low, Medium, High | `select.<device>_camera_hue` |
+| ISO (Echo Show 5, Echo Show 5 (2nd gen), Echo Show 8) | auto | auto, 100, 200, 400, 800, 1600 | `select.<device>_camera_iso` |
+| Keyframe interval (Echo Shows) | 2 s | 1 to 10 s | `number.<device>_camera_keyframe_interval` |
+| Main stream (Echo Shows) | On | On, Off | `switch.<device>_camera_main_stream` |
+| Main resolution (Echo Shows) | 1280×720 | 1280×720, 960×480, 864×480, 640×480 | `select.<device>_camera_main_resolution` |
+| Noise reduction (Echo Show 8 (2nd gen)) | Fast | Off, Fast, High quality, Minimal | `select.<device>_camera_noise_reduction` |
+| Quality (Echo Shows) | Standard | Low, Standard, High | `select.<device>_camera_quality` |
+| Saturation (Echo Shows) | Medium (Echo Show 5), 5 (Echo Show 8 (2nd gen)) | Low, Medium, High | `select.<device>_camera_saturation` |
+| Scene (Echo Shows) | Auto | Auto, Portrait, Landscape, Night | `select.<device>_camera_scene` |
+| Sharpness (Echo Shows) | Medium (Echo Show 5), 2 (Echo Show 8 (2nd gen)) | Low, Medium, High | `select.<device>_camera_sharpness` |
+| Sub stream (Echo Show 8 (2nd gen)) | On | On, Off | `switch.<device>_camera_sub_stream` |
+| Sub resolution (Echo Show 8 (2nd gen)) | 640 px wide | 960 px wide, 768 px wide, 640 px wide, 480 px wide, 320 px wide | `select.<device>_camera_sub_resolution` |
+| White balance (Echo Shows) | Auto | Auto, Incandescent, Fluorescent, Warm fluorescent, Daylight, Cloudy, Twilight, Shade | `select.<device>_camera_white_balance` |
+
+## Camera stream
+
+On the Echo Shows only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| RTSP server | Off | On, Off | `switch.<device>_camera_rtsp_server` |
+| RTSP password | — | Text | `text.<device>_camera_rtsp_password` |
+| RTSP username | admin | Text | `text.<device>_camera_rtsp_username` |
+
+## Light ring
+
+On the Echo Dot only.
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Ring on failure | Alert | None, any [light ring effect](/use/dot/#effects) | `select.<device>_ring_ring_on_failure` |
+| LED ring | — | Color, brightness, effect | `light.<device>_ring_led_ring` |
+| Ring during a call | Pulse | None, any [light ring effect](/use/dot/#effects) | `select.<device>_ring_ring_during_a_call` |
+| Ring for an incoming call | Beacon | None, any [light ring effect](/use/dot/#effects) | `select.<device>_ring_ring_for_an_incoming_call` |
+| Ring while muted | — | None, any [light ring effect](/use/dot/#effects) | `select.<device>_ring_ring_while_muted` |
+| Ring follows the room | None | None, Room Compass, Room Glow, Room Meter, Room Ocean, Room VU, Room Fire, Room Spin, Room Aurora, Room Twinkle, Room Embers | `select.<device>_ring_ring_follows_the_room` |
+
+## Speaker and playback
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Cast bundle | — | Text | `text.<device>_playback_cast_bundle` |
+| Cast oracle | — | Text | `text.<device>_playback_cast_oracle` |
+| White noise layer 1 | None | None, White, Pink, Brown, Rain, Ocean, Brook, Wind, Fire, Crickets, Fan, Cabin | `select.<device>_playback_white_noise_layer_1` |
+| White noise layer 2 | None | None, White, Pink, Brown, Rain, Ocean, Brook, Wind, Fire, Crickets, Fan, Cabin | `select.<device>_playback_white_noise_layer_2` |
+| Speaker EQ | On, where the Echo's own audio tuning loads | On, Off | `switch.<device>_playback_speaker_eq` |
+| Voice resampling | Band limited | Band limited, Linear, Repeat samples | `select.<device>_playback_voice_resampling` |
+| Alerts volume | 100 % | 0 to 100 % | `number.<device>_playback_alerts_volume` |
+| Feedback volume | 100 % | 0 to 100 % | `number.<device>_playback_feedback_volume` |
+| Main volume | 50 % | 0 to 100 % | `number.<device>_playback_main_volume` |
+| Media volume | 100 % | 0 to 100 % | `number.<device>_playback_media_volume` |
+| Voice volume | 100 % | 0 to 100 % | `number.<device>_playback_voice_volume` |
+
+## Network
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Home key | — | Text | `text.<device>_home_key` |
+| Verify certificates | On | On, Off | `switch.<device>_verify_certificates` |
+
+## Web access
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Admin password | — | Text | `text.<device>_frontend_admin_password` |
+
+## Certificate
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Cert Warden certificate name | — | Text | `text.<device>_frontend_cert_warden_certificate_name` |
+| Cert Warden certificate API key | — | Text | `text.<device>_frontend_cert_warden_certificate_api_key` |
+| Cert Warden key API key | — | Text | `text.<device>_frontend_cert_warden_key_api_key` |
+| Cert Warden server | — | Text | `text.<device>_frontend_cert_warden_server` |
+
+## System
+
+| Setting | Default | Choices | Entity |
+|---|---|---|---|
+| Install version | Select for rollback | The available versions | `select.<device>_install_version` |
+| Settings Lock (Echo Shows) | — | 4 to 8 digits | `text.<device>_settings_lock` |
+| Metrics interval | 300 s | 10 to 3600 s | `number.<device>_metrics_interval` |
+| Minimum CPU cores | 0 | 1 to 0 | `number.<device>_minimum_cpu_cores` |
+| Remote adb | Off | On, Off | `switch.<device>_remote_adb` |
+| Time zone | Home Assistant | Home Assistant, UTC, Europe/London, Europe/Lisbon, Europe/Paris, Europe/Berlin and 34 more | `select.<device>_time_zone` |
+| Update channel | stable | stable, dev | `select.<device>_update_channel` |
+

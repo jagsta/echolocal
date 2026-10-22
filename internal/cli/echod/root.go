@@ -12,7 +12,7 @@ func newRoot() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "echod",
 		Short: "EchoLocal device agent",
-		Long: "echod runs on the Echo Dot and presents it to Home Assistant as an ESPHome\n" +
+		Long: "echod runs on an Echo Dot or Echo Show and presents it to Home Assistant as an ESPHome\n" +
 			"voice satellite. The tools subtree exposes the same hardware access for\n" +
 			"diagnostics.",
 		SilenceUsage: true,

@@ -451,7 +451,8 @@ func (d *Diag) hardware() {
 				Category: esphome.CategoryDiagnostic,
 			},
 			StateClass: esphome.StateClassMeasurement,
-			Decimals:   2,
+			Unit:       "dBFS",
+			Decimals:   1,
 		}
 	}
 	d.roomLevel = room("room_level", "Room level", "mdi:waveform")

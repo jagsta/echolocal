@@ -12,6 +12,7 @@ import (
 	"github.com/ygelfand/libcountertop/pkg/display/brightness"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
 	"github.com/ygelfand/libcountertop/pkg/runtime/safe"
+	"github.com/ygelfand/libcountertop/pkg/settings/schema"
 
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
@@ -129,6 +130,10 @@ func (a *Auto) Close() error {
 }
 
 func (a *Auto) Ambient() (float64, bool) { return a.auto.Ambient() }
+
+func (a *Auto) Night(n schema.Night) { a.auto.Night(n) }
+
+func (a *Auto) Rising(share func() (float64, bool)) { a.auto.Rising(share) }
 
 func (a *Auto) follow(lux float64) {
 	step := a.auto.Follow(lux, config.Get().Screen)

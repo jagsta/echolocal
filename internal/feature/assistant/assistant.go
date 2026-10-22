@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	sharedscreen "github.com/ygelfand/libcountertop/pkg/display/assistant"
-	"github.com/ygelfand/libcountertop/pkg/input/touch"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
 
 	"github.com/ygelfand/echolocal/internal/board"
@@ -15,7 +14,6 @@ import (
 	"github.com/ygelfand/echolocal/internal/hardware/display"
 	"github.com/ygelfand/echolocal/internal/hardware/gpu"
 	"github.com/ygelfand/echolocal/internal/hardware/mic"
-	hwtouch "github.com/ygelfand/echolocal/internal/hardware/touch"
 )
 
 func init() {
@@ -30,11 +28,6 @@ func init() {
 var get = sync.OnceValue(func() *sharedscreen.Assistant {
 	a := sharedscreen.New(sharedscreen.Dependencies{Microphone: mic.Get(), Controller: voice.Get()})
 	voice.Shown.Listen(a.Show)
-	hwtouch.Get().Contacts.Listen(func(c touch.Contact) {
-		if c.Phase == touch.Down {
-			a.Cancel(c.ID)
-		}
-	})
 	return a
 })
 

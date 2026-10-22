@@ -156,6 +156,50 @@ func TestNoiseMultipleFramesNonceOrder(t *testing.T) {
 	}
 }
 
+func TestNoiseFrameTooLarge(t *testing.T) {
+	psk := testPSK()
+	c1, c2 := pipePair(t)
+
+	device := NewNoise(c1, psk, "echolocal")
+	errc := make(chan error, 1)
+	go func() { errc <- device.Handshake() }()
+
+	client := newTestInitiator(c2)
+	if err := client.handshake(psk); err != nil {
+		t.Fatalf("client handshake: %v", err)
+	}
+	if err := <-errc; err != nil {
+		t.Fatalf("device handshake: %v", err)
+	}
+
+	// net.Pipe is unbuffered: a frame that was written would block here with nobody reading.
+	if err := device.Write(Frame{Type: 1, Data: make([]byte, maxNoisePayload+1)}); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("oversized write err = %v, want ErrFrameTooLarge", err)
+	}
+
+	// The largest frame that fits, then a small one: both arrive whole, so the refused write left
+	// the connection in sync.
+	big := Frame{Type: 2, Data: bytes.Repeat([]byte{0xab}, maxNoisePayload)}
+	small := Frame{Type: 3, Data: []byte("still in sync")}
+	go func() {
+		for _, f := range []Frame{big, small} {
+			if err := device.Write(f); err != nil {
+				t.Errorf("device write: %v", err)
+				return
+			}
+		}
+	}()
+	for _, want := range []Frame{big, small} {
+		got, err := client.read()
+		if err != nil {
+			t.Fatalf("client read: %v", err)
+		}
+		if got.Type != want.Type || !bytes.Equal(got.Data, want.Data) {
+			t.Fatalf("got type %d with %d bytes, want type %d with %d bytes", got.Type, len(got.Data), want.Type, len(want.Data))
+		}
+	}
+}
+
 func TestNoiseWrongPSKReportsError(t *testing.T) {
 	deviceKey := testPSK()
 	clientKey := make([]byte, 32)

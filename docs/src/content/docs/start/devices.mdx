@@ -1,0 +1,61 @@
+---
+title: Supported devices
+description: Which Echo devices EchoLocal runs on.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import shows from '../../../assets/screens/shows.png';
+
+EchoLocal detects the model itself.
+
+| | Echo Dot (2nd gen) | Echo Show 5 (1st gen) | Echo Show 5 (2nd gen) | Echo Show 8 (1st gen) | Echo Show 8 (2nd gen) |
+|---|---|---|---|---|---|
+| **Codename** | biscuit | checkers | cronos | crown | athena |
+| **Status** | Supported | Supported | Supported | Supported | Supported |
+| **Screen** | LED ring | 5.5", 960 × 480 | 5.5", 960 × 480 | 8", 1280 × 800 | 8", 1280 × 800 |
+| **Camera** | No | Yes | Yes | Yes | Yes |
+| **Speaker** | Mono | Mono | Mono | Stereo | Stereo |
+
+<Image src={shows} alt="An Echo Show 8 with the Digital VU visual behind the clock, and two Echo Show 5s running Matrix and Orb" class="screen-wide" />
+
+## What each one does
+
+| | Echo Dot | Echo Shows |
+|---|---|---|
+| Voice assistants, timers, alarms | Yes | Yes |
+| Media player, Sendspin | Yes | Yes |
+| Chromecast | Audio | Audio and video |
+| AirPlay mirroring, Bluetooth speaker | | Yes |
+| Intercom | Audio; calls by voice | Audio and video |
+| Broadcasts | Yes | Yes |
+| Dashboards, screen saver, visuals, apps | | Yes |
+| Camera, RTSP | | Yes |
+| Home Assistant cameras on the screen | | Yes |
+| Settings PIN | | Yes |
+| Light ring | Yes | |
+| Settings | In Home Assistant | On the screen and in Home Assistant |
+
+## Echo Dot (2nd gen, biscuit)
+
+No screen: a twelve-segment light ring, four buttons and a seven-microphone array. Everything is set
+in Home Assistant or on the [EchoLocal card](/start/integration/). See
+[Echo Dot: buttons and light ring](/use/dot/).
+
+## Echo Show 5 (1st and 2nd gen, checkers and cronos)
+
+The first and second generation Show 5 look the same and run the same software. The second
+generation comes with two different speaker amplifiers; EchoLocal handles both.
+
+## Echo Show 8 (1st gen, crown)
+
+A bigger screen, a larger dashboard grid, and stereo speakers.
+
+## Echo Show 8 (2nd gen, athena)
+
+The same screen and stereo speakers as the first generation. Its camera goes up to 1920 × 1080 and
+is the only Echo camera with a [sub stream](/features/camera/#rtsp).
+
+<Aside type="note">
+Other Echos aren't supported yet.
+</Aside>

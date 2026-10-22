@@ -172,7 +172,19 @@ func remountRW(r *run) (string, bool, error) {
 // adb only remounts read-write, and no mount(8) on the device can remount the root.
 func remountRO(r *run) (string, bool, error) {
 	out, err := r.d.Shell(layout.Binary + " tools remount ro 2>/dev/null")
+	if err != nil && heldOpen(r) {
+		r.reboot = true
+		return "read-only after the reboot", true, nil
+	}
 	return strings.TrimSpace(out), false, err
+}
+
+// ext4 refuses a read-only remount while a deleted file on it is still open.
+func heldOpen(r *run) bool {
+	_, err := r.d.Shell(
+		`for f in /proc/[0-9]*/fd/*; do readlink "$f"; done 2>/dev/null | grep -q '^/system/.* (deleted)$'`,
+	)
+	return err == nil
 }
 
 func installBinary(r *run) (string, bool, error) {

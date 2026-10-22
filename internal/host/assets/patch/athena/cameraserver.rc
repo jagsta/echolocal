@@ -1,0 +1,8 @@
+service cameraserver /system/bin/cameraserver
+    class main
+    user root
+    group root audio camera input drmrpc inet media mediadrm net_bt net_bt_admin net_bw_acct sdcard_rw
+    seclabel u:r:su:s0
+    setenv LD_PRELOAD /system/app/echod/libecholocal-camshim.so
+    ioprio rt 4
+    writepid /dev/cpuset/camera-daemon/tasks /dev/stune/top-app/tasks

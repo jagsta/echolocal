@@ -33,7 +33,8 @@ func newMediaCmd() *cobra.Command {
 			"than skipping ahead.\n\n" +
 			"echod holds the playback device, so stop the service first and start it after:\n" +
 			"  setprop ctl.stop ledcontroller\n" +
-			"  setprop ctl.start ledcontroller",
+			"  setprop ctl.start ledcontroller\n" +
+			"On an Echo Show the service is echod.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := speaker.Acquire()

@@ -25,6 +25,9 @@ func page() *sharedshell.Page {
 			Streams:   config.Streams(),
 			MainSteps: media.VolumeSteps,
 			Chimes:    chimes{},
+			Feedback:  feedback.Get().Feedback,
+			Media:     media.Get().Settings(),
+			Push:      shell.Get().Push,
 		})
 	})
 	return sound

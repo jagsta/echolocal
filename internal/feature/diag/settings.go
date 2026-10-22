@@ -19,6 +19,7 @@ import (
 
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/labels"
 )
 
 const Group setting.Group = "Diagnostics"
@@ -32,7 +33,7 @@ func Table() *setting.Table[config.Diag] {
 			Setting{Name: "remote_adb", Group: Group, Icon: "mdi:bug-outline"},
 			func(c *config.Diag) *bool { return &c.ADB },
 		),
-	}, setting.Messages{}).Local()
+	}, labels.Messages()).Local()
 }
 
 // Settings registers the host-side ctl surface for the diag group.

@@ -1,0 +1,53 @@
+---
+title: Before you install
+description: What you need, and unlocking the Echo.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The Echo has to be unlocked first, using the community's unlock process.
+
+## What you need
+
+- A supported [Echo](/start/devices/)
+- A computer running macOS, Linux or Windows
+- A USB cable that carries data
+- **Android platform-tools** (`adb`)
+  - macOS: `brew install --cask android-platform-tools`
+  - Debian or Ubuntu: `sudo apt install android-sdk-platform-tools`
+  - Other: [download from Google](https://developer.android.com/tools/releases/platform-tools)
+- Home Assistant on the same network
+- Your Wi‑Fi name and password. **WPA2** or open networks; WPA3-only and enterprise networks aren't
+  supported.
+
+## Unlock
+
+<Steps>
+
+1. Follow the XDA guide for your Echo. Each one ends with **TWRP** as the recovery, which the
+   installer needs.
+
+   - [Echo Dot (2nd gen)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-dot-2nd-gen-2016-biscuit.4761416/), on Fire OS 6
+   - [Echo Show 5 (1st gen)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-show-5-1st-gen-2019-checkers.4762900)
+   - [Echo Show 5 (2nd gen)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-show-5-2nd-gen-2021-cronos.4772596)
+   - [Echo Show 8 (1st gen)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-show-8-1st-gen-2019-crown.4766687)
+   - [Echo Show 8 (2nd gen)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-show-8-2nd-gen-2021-athena.4804958/)
+
+2. Leave the Echo on its stock **Fire OS**. EchoLocal installs on top of it; a device that's had
+   another system flashed, such as LineageOS, needs Fire OS restored first.
+
+3. Plug the Echo in and run:
+
+   ```sh
+   adb devices
+   ```
+
+   You should see one device listed.
+
+</Steps>
+
+<Aside type="caution">
+There's no uninstaller. To go back, restore Fire OS using the same XDA guide.
+</Aside>
+
+Next: [install](/start/install/).

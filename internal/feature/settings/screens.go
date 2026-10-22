@@ -11,7 +11,9 @@ import (
 
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/certs"
 	"github.com/ygelfand/echolocal/internal/feature/dhcp"
+	"github.com/ygelfand/echolocal/internal/feature/frontend"
 	"github.com/ygelfand/echolocal/internal/feature/homecontrol"
 	"github.com/ygelfand/echolocal/internal/feature/media"
 	"github.com/ygelfand/echolocal/internal/feature/network"
@@ -106,7 +108,10 @@ func networkPage() *sharedshell.Page {
 			c.Renew = l.Renew
 		}
 		return c
-	}, network.Get().SetVerify)
+	}, network.Get().SetVerify, &sharedsettings.WebAccess{
+		Admin:       frontend.Get(),
+		Certificate: certs.Get(),
+	}, shell.Get())
 }
 
 func aboutPage() *sharedshell.Page {

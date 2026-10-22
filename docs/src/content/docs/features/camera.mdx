@@ -1,0 +1,71 @@
+---
+title: Camera
+description: RTSP, ONVIF, a snapshot camera, and the camera's settings.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+On the Echo Show 5, Show 5 (2nd gen), Show 8 and Show 8 (2nd gen). The Echo Dot has no camera.
+
+## RTSP
+
+Off by default. Turn it on under **Settings → Connected services → Camera stream**, or with the
+**RTSP server** switch (`rtsp`) in Home Assistant.
+
+```text
+rtsp://192.168.1.50:8554/main
+rtsp://192.168.1.50:8554/sub
+```
+
+`main` is full resolution. `sub`, a smaller stream for previews and motion detection, is on the
+Echo Show 8 (2nd gen) only. Set resolutions, keyframe interval and quality under
+**Settings → Camera → Streams**.
+
+| Device | Main resolutions | Sub stream widths |
+|---|---|---|
+| Echo Show 5 (1st gen) | **1280×720**, 960×480, 864×480, 640×480 | No sub stream |
+| Echo Show 5 (2nd gen) | 1280×960, **1280×720**, 864×480, 640×480 | No sub stream |
+| Echo Show 8 (1st gen) | **1280×720**, 960×480, 864×480, 640×480 | No sub stream |
+| Echo Show 8 (2nd gen) | 1920×1080, **1280×720**, 640×480 | 960, 768, **640**, 480, 320 px |
+
+Defaults in bold. The sub stream keeps the main stream's shape and is never wider than it.
+
+ONVIF discovery is supported.
+
+## Password
+
+Set a password under **Settings → Connected services → Camera stream**, or with **RTSP password**
+(`rtsp_password`) in Home Assistant. The stream, ONVIF and the snapshot then all ask for it, with
+the username `admin` unless you change it (`rtsp_username`). Leave the password empty to turn it off.
+
+Give a recorder or Home Assistant's ONVIF integration the same username and password. A player that
+takes a plain address needs them in it:
+
+```text
+rtsp://admin:password@192.168.1.50:8554/main
+```
+
+## Snapshot
+
+Home Assistant gets a camera entity with still pictures.
+
+## Picture
+
+**Settings → Camera** has a live preview and pages for **Picture**, **Exposure**, **White Balance**
+and **Streams**, and **Reset to defaults**. Every setting is listed on
+[Settings on the screen](/use/settings/#camera) and is also in Home Assistant. Camera settings
+aren't copied by config sync.
+
+## Shutter
+
+With the shutter closed, the stream, calls, the camera preview and Mirror show **Camera shutter is
+closed** instead of the picture, snapshots fail, and a privacy mark shows on screen. Home
+Assistant's **Camera covered** sensor (`camera_covered`) follows it.
+
+Muting the microphones with the mute button also cuts the camera, the way Amazon designed it. The
+stream, calls, the camera preview and Mirror show **Microphones are muted** instead of the picture,
+and video comes back about a second after you unmute.
+
+<Aside type="caution">
+Without a [password](#password), anyone on your network can watch the stream while it's on.
+</Aside>

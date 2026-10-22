@@ -60,12 +60,16 @@ func level(r Room) float64 {
 	return math.Max(0, math.Min(1, r.Level()))
 }
 
-func facing(r Room) (float64, bool) {
-	if r.Facing == nil {
+func facing(r Room) (float64, bool) { return segmentOf(r.Facing) }
+
+func beam(r Room) (float64, bool) { return segmentOf(r.Beam) }
+
+func segmentOf(toward func() (float64, bool)) (float64, bool) {
+	if toward == nil {
 		return 0, false
 	}
 
-	at, ok := r.Facing()
+	at, ok := toward()
 	if !ok {
 		return 0, false
 	}

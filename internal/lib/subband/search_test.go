@@ -24,8 +24,10 @@ func TestSearchLayout(t *testing.T) {
 		Beams:     envInt("ECHOLOCAL_BEAMS", 8),
 		Taps:      4,
 		perGroup:  4,
+		margin:    1,
 		boostDB:   7.2,
 	}
+	base.groups = alone(base.Beams)
 
 	win, err := readFloats(window, base.WindowLen)
 	if err != nil {

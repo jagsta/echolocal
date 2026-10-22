@@ -1,0 +1,116 @@
+---
+title: Dashboards
+description: EchoLocal's own clock and home control, or a Tessera dashboard from Home Assistant.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import setup from '../../../assets/screens/tessera-setup.webp';
+import tessera from '../../../assets/screens/tessera.webp';
+import lights from '../../../assets/screens/home-lights.webp';
+
+On the Echo Shows.
+
+The dashboard is what the device shows when you're using it. There are two kinds, and you pick one
+in **Settings → Display → Dashboard**:
+
+- **Native**: a big clock, the weather, and tabs for your lights, switches and cameras
+- **Tessera**: pages of tiles you lay out in Home Assistant
+
+## Native
+
+The native dashboard is a clock with the date, an optional weather card, and optional
+[wallpaper from Immich](/features/photos/) behind it. Pick the clock face, position, size and color
+under **Settings → Display → Dashboard → Clock**.
+<div class="carousel">
+	<img src="/carousel/faces-0.png" alt="A clock face, 1 of 8" loading="lazy" />
+	<img src="/carousel/faces-1.png" alt="A clock face, 2 of 8" loading="lazy" />
+	<img src="/carousel/faces-2.png" alt="A clock face, 3 of 8" loading="lazy" />
+	<img src="/carousel/faces-3.png" alt="A clock face, 4 of 8" loading="lazy" />
+	<img src="/carousel/faces-4.png" alt="A clock face, 5 of 8" loading="lazy" />
+	<img src="/carousel/faces-5.png" alt="A clock face, 6 of 8" loading="lazy" />
+	<img src="/carousel/faces-6.png" alt="A clock face, 7 of 8" loading="lazy" />
+	<img src="/carousel/faces-7.png" alt="A clock face, 8 of 8" loading="lazy" />
+</div>
+
+### Lights and switches
+
+Open **Settings → Home control → Native → Lights** (or **Switches**) and turn on **Enable**; the
+dashboard gains a **Lights** (or **Switches**) tab. **Select devices** picks what goes on it by
+label, by area or one by one, and **Group by area** sets how it's grouped:
+
+- Every device on its own card
+- Areas with a few devices on one card
+- Every area on one card
+
+<Image src={lights} alt="The Lights tab, with a card per room" class="screen" />
+
+The same cards open full screen from the **Lights** and **Switches** apps on the Apps screen.
+
+### Cameras
+
+Turn on **Settings → Home control → Cameras → Dashboard tab** and the dashboard gains a **Cameras**
+tab with the pictures from the [Cameras app](/features/apps/#cameras). Tap a camera to watch it full
+screen.
+
+### Weather
+
+Pick a Home Assistant weather entity under **Settings → Home control → Weather**, then choose how it
+looks on the dashboard and on the screen saver: Compact, Stack, Card, Detail, Icon or Words, with
+or without animation, in the weather's colors or the theme's, and where it sits. The dashboard and
+the screen saver each have their own layout.
+
+**Weather alerts** replaces the card with severe and extreme US warnings from the National Weather
+Service until you dismiss them. Every weather setting is on
+[Settings on the screen](/use/settings/#weather).
+
+## Tessera
+
+[Tessera](https://github.com/MaxGramser/homeassistant_espscreen) is a Home Assistant integration
+with a drag-and-drop editor for touch screens. EchoLocal speaks its screen protocol, so the
+device shows up in Tessera like any other screen. Lay out the pages there; the device draws
+them in your style and theme.
+
+<Image src={tessera} alt="A Tessera page with climate, weather, a clock, the sun, energy flow, lights and locks" class="screen" />
+<div class="carousel">
+	<img src="/carousel/styles-0.png" alt="The same Tessera page in a style, 1 of 9" loading="lazy" />
+	<img src="/carousel/styles-1.png" alt="The same Tessera page in a style, 2 of 9" loading="lazy" />
+	<img src="/carousel/styles-2.png" alt="The same Tessera page in a style, 3 of 9" loading="lazy" />
+	<img src="/carousel/styles-3.png" alt="The same Tessera page in a style, 4 of 9" loading="lazy" />
+	<img src="/carousel/styles-4.png" alt="The same Tessera page in a style, 5 of 9" loading="lazy" />
+	<img src="/carousel/styles-5.png" alt="The same Tessera page in a style, 6 of 9" loading="lazy" />
+	<img src="/carousel/styles-6.png" alt="The same Tessera page in a style, 7 of 9" loading="lazy" />
+	<img src="/carousel/styles-7.png" alt="The same Tessera page in a style, 8 of 9" loading="lazy" />
+	<img src="/carousel/styles-8.png" alt="The same Tessera page in a style, 9 of 9" loading="lazy" />
+</div>
+
+Most of Tessera's tiles and features are supported.
+
+### Set it up
+
+<Steps>
+
+1. Install Tessera in Home Assistant from its
+   [GitHub page](https://github.com/MaxGramser/homeassistant_espscreen).
+
+2. On the device, set **Settings → Display → Dashboard** to **Tessera**.
+
+3. The device appears in Tessera as a screen. Without tiles it shows:
+
+   <Image src={setup} alt="A screen asking to be set up in Tessera" class="screen-wide" />
+
+4. Add pages and tiles in Tessera's editor. They show up on the device.
+
+</Steps>
+
+The grid starts at 4 × 2 tiles on the Echo Show 5 and 6 × 4 on the Echo Show 8.
+
+**Settings → Home control → Tessera** sets the tile grid, which orientations to offer, and whether
+the device goes back to the first page after the screen saver. The screen saver can be a Tessera
+page too: **Settings → Display → Screen saver → Mode**.
+
+<Aside type="tip">
+Turn on **Allow the device to perform Home Assistant actions** on the device's ESPHome device in
+Home Assistant, or taps on tiles won't do anything. The Home control page reminds you if it's off.
+</Aside>
+

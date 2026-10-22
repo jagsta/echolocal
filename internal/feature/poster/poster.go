@@ -9,7 +9,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
-	"github.com/ygelfand/echolocal/internal/hardware/alsps"
+	"github.com/ygelfand/echolocal/internal/feature/photos"
 	hwtouch "github.com/ygelfand/echolocal/internal/hardware/touch"
 )
 
@@ -22,7 +22,7 @@ var get = sync.OnceValue(func() *sharedposter.Poster {
 		sharedposter.Dependencies{
 			Settings: config.PosterSection,
 			Touch:    hwtouch.Get(),
-			Ambient:  ambient,
+			Photos:   photos.Get(),
 			DeviceID: component.DeviceScreen,
 		},
 	)
@@ -39,4 +39,3 @@ func init() {
 		component.Needs(board.Panel),
 	)
 }
-func ambient() (float64, bool) { r := alsps.Ambient(); return r.Value, r.Known }

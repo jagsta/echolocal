@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"runtime"
 	"time"
+
+	"github.com/ygelfand/libcountertop/pkg/network/releases"
 )
 
 // Home Assistant ranks Version with AwesomeVersion; an unrankable one pins the update card on.
@@ -52,7 +55,10 @@ func Fetch(ctx context.Context, c Channel) (Manifest, error) {
 	ctx, cancel := context.WithTimeout(ctx, manifestTimeout)
 	defer cancel()
 
-	url := c.URL()
+	url, err := c.Manifest(ctx)
+	if err != nil {
+		return m, err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -72,6 +78,31 @@ func Fetch(ctx context.Context, c Channel) (Manifest, error) {
 		return m, fmt.Errorf("update: reading the manifest at %s: %w", url, err)
 	}
 	return m, m.Valid()
+}
+
+func FetchTag(ctx context.Context, tag string) (Manifest, error) {
+	return At(ctx, releases.Manifest(repo, tag))
+}
+
+func Releases(ctx context.Context) ([]releases.Release, error) {
+	all, err := releases.List(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	var fits []releases.Release
+	for _, r := range all {
+		m, err := FetchTag(ctx, r.Tag)
+		if err != nil {
+			slog.Debug("skipping a release", "version", r.Tag, "err", err)
+			continue
+		}
+		if _, err := m.For(codename, arch); err != nil {
+			slog.Debug("skipping a release", "version", r.Tag, "err", err)
+			continue
+		}
+		fits = append(fits, r)
+	}
+	return fits, nil
 }
 
 func (m Manifest) flat() Binary {

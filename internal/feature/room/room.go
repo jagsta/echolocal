@@ -1,6 +1,7 @@
 package room
 
 import (
+	"slices"
 	"sync"
 
 	esphome "github.com/ygelfand/go-esphome-device"
@@ -58,9 +59,13 @@ func build() *Reaction {
 	}
 
 	source := mic.Get()
-	r.room = led.Room{Level: source.Level, Facing: source.Facing}
+	r.room = led.Room{Level: source.Level, Facing: source.Facing, Beam: source.BeamFacing}
 
-	component.BindEffect(r.sel, led.Names(led.KindRoom), r.show, config.Set().Ring().Reaction)
+	names := led.Names(led.KindRoom)
+	if !mic.FollowsBeam() {
+		names = slices.DeleteFunc(names, func(n string) bool { return n == led.EffectBeamCompass })
+	}
+	component.BindEffect(r.sel, names, r.show, config.Set().Ring().Reaction)
 
 	light.Get().OnColor(r.recolour)
 	return r

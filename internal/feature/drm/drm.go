@@ -25,5 +25,9 @@ func init() {
 }
 
 var Get = sync.OnceValue(func() *widevine.Provisioner {
-	return widevine.New(func() *surface.Client { return display.Get().Helper() }, dhcp.Get())
+	return widevine.New(
+		func() *surface.Client { return display.Get().Helper() },
+		dhcp.Get(),
+		widevine.L1,
+	)
 })

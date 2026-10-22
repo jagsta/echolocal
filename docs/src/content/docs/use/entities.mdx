@@ -1,0 +1,174 @@
+---
+title: Settings in Home Assistant
+description: The settings that are only in Home Assistant, and the sensors, buttons, events and actions every device has.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Everything on [Settings on the screen](/use/settings/) is also a Home Assistant entity. This page
+covers what is **only** in Home Assistant: the microphones, the assistants' timing, ducking, photos
+and more, plus the sensors, buttons, events and actions.
+
+Find them on the device's page under **Settings → Devices & services → ESPHome**. The
+**Entity** column is the entity id Home Assistant gives each one by default, with `<device>` standing
+for your device's name.
+
+The entities are split across sub-devices so the device page stays readable: **ring**,
+**microphone**, **playback**, **screen**, **camera**, **dashboard**, **voice triggers**,
+**assistant 1** and **assistant 2**, each named after your device. The [EchoLocal card](/start/integration/) shows the
+same settings grouped the same way, with a **?** next to each that explains it.
+
+## Speaker
+
+| Entity | Name | What it does | Range | Default |
+|---|---|---|---|---|
+| `media_player.<device>_speaker` | Speaker | The media player: announcements, TTS, music, volume | | |
+| `number.<device>_playback_music_ducking` | Music ducking | How far music drops while the assistant listens or talks | −40 to −3 dB | −15 dB |
+| `select.<device>_playback_white_noise_layer_1`, `select.<device>_playback_white_noise_layer_2` | White noise layer 1, 2 | Two layers of steady sound, mixed, ducking under everything else | None, White, Pink, Brown, Rain, Ocean, Brook, Wind, Fire, Crickets, Fan, Cabin | None |
+| `switch.<device>_playback_speaker_eq` | Speaker EQ | Amazon's own EQ and limiter for this speaker, adjusted with the volume. Turn it off to hear the speaker flat | On, Off | On |
+| `select.<device>_playback_voice_resampling` | Voice resampling | How assistant replies are converted to the speaker's rate | Band limited, Linear, Repeat samples | Band limited |
+| `volume_*` | Volumes | The same sliders as Settings → Sound | 0–100 % | |
+
+The Echo Show 8 plays in stereo; the others play mono.
+
+## Microphones
+
+See [Microphones](/features/microphones/) for what these do and how to tune them. Apart from Mute sound,
+none of them are copied by config sync.
+
+| Entity | Name | Range | Default |
+|---|---|---|---|
+| `select.<device>_microphone_microphone_mixing` | Microphone mixing | Center mic, Delay and sum, Beamformer (the last two only on the Echo Dot) | Center mic |
+| `number.<device>_microphone_microphone_gain` | Microphone gain | 0–59 dB | 20 dB |
+| `switch.<device>_microphone_microphone_leveling` | Microphone leveling | On, Off | On |
+| `switch.<device>_microphone_microphone_echo_cancellation` | Microphone echo cancellation | On, Off | On |
+| `number.<device>_microphone_room_sensitivity` | Room sensitivity | 4–20 dB above the room | 8 dB |
+| `select.<device>_microphone_mute_sound` | Mute sound | Chimes, Mute tones, custom tones | Mute tones |
+| `switch.<device>_microphone_microphone_mute` | Microphone mute | The same as the mute button | |
+
+## Voice assistants
+
+Each assistant has its own set, on its own sub-device. `N` is 1 or 2.
+
+| Entity | Name | What it does | Range | Default |
+|---|---|---|---|---|
+| `button.<device>_assistant_N_wake` | Wake | Start this assistant without the wake word (button) | | |
+| `number.<device>_assistant_N_wake_word_sensitivity` | Wake word sensitivity | Higher needs a clearer wake word | 0.5–0.99 | 0.85 |
+| `select.<device>_assistant_N_wake_word_tone` | Wake word tone | The sound when it wakes | Chimes, custom tones | Chirp |
+| `select.<device>_assistant_N_reply_delivery` | Reply delivery | Download the reply first, or stream it | Download first, Stream | Download first |
+| `number.<device>_assistant_N_reply_buffer` | Reply buffer | How much of a streamed reply to collect before playing | 0–3000 ms | 650 ms |
+| `number.<device>_assistant_N_follow_up_time` | Follow-up time | Keep listening this long after a reply, for another request without the wake word | 0–30 s | 0 |
+| `number.<device>_assistant_N_max_listening_time` | Max listening time | Stop listening after this long | 5–60 s | 15 s |
+| `number.<device>_assistant_N_max_thinking_time` | Max thinking time | Give up waiting for Home Assistant after this long | 5–300 s | 90 s |
+| `number.<device>_assistant_N_recordings_kept` | Recordings kept | Keep the last N requests' audio, for the `recordings` action and the card's Activity tab | 0–10 | 0 |
+
+The wake word and the Assist pipeline are picked with Home Assistant's own selects on the same
+device.
+
+| Entity | Name | What it does | Range | Default |
+|---|---|---|---|---|
+| `number.<device>_microphone_stop_word_sensitivity` | Stop word sensitivity | How sure "Stop" has to be. 1 turns it off | 0.5–1 | 0.7 |
+| `sensor.<device>_last_wake_word`, `sensor.<device>_last_heard`, `sensor.<device>_last_reply` | | The last wake word, what was heard, and the reply (sensors) | | |
+| `sensor.<device>_timers` | Timers | Running timers (sensor) | | |
+
+## Voice triggers
+
+On the **voice triggers** sub-device. See [Voice triggers](/features/voice/#voice-triggers).
+
+| Entity | Name | What it does | Default |
+|---|---|---|---|
+| `switch.<device>_voice_triggers_all_actions` | All actions | Let Assist run this device's actions from what you say | On |
+| `switch.<device>_voice_triggers_call_a_device` | Call a device | "Call the kitchen" | On |
+| `switch.<device>_voice_triggers_broadcast_a_message` | Broadcast a message | "Broadcast dinner is ready" | On |
+| `switch.<device>_voice_triggers_all_commands` | All commands | Spoken commands without a wake word (Echo Show) | On |
+| `switch.<device>_voice_triggers_radar`, `switch.<device>_voice_triggers_mirror` | Radar, Mirror | "Radar" opens the radar, "mirror" opens Mirror (Echo Show) | On |
+
+## Light ring
+
+On the Echo Dot. See [Echo Dot: buttons and light ring](/use/dot/) for the effects.
+
+| Entity | Name | What it does | Default |
+|---|---|---|---|
+| `light.<device>_ring_led_ring` | LED ring | The ring as a light: color, brightness and an effect | Off |
+| `light.<device>_ring_led_ring_segment_1` … `light.<device>_ring_led_ring_segment_12` | LED ring segment N | Each segment as its own light (disabled in Home Assistant until you enable them) | |
+| `select.<device>_ring_ring_follows_the_room` | Ring follows the room | An effect that follows the room's sound | None |
+| `select.<device>_ring_ring_while_muted` | Ring while muted | The effect while the microphone is muted | None |
+| `select.<device>_ring_ring_on_failure` | Ring on failure | When a request fails | Alert |
+| `select.<device>_ring_ring_for_an_incoming_call`, `select.<device>_ring_ring_during_a_call` | Ring for an incoming call, Ring during a call | | Beacon, Pulse |
+| `select.<device>_assistant_N_wake_word_effect`, `select.<device>_assistant_N_thinking_effect`, `select.<device>_assistant_N_replying_effect` | Wake word, Thinking, Replying effect | Per assistant | Pulse, Default, Default |
+| `select.<device>_microphone_mute_led_brightness` | Mute LED brightness | The red mute light | Bright |
+
+## Network and Bluetooth
+
+| Entity | Name | What it does | Range | Default |
+|---|---|---|---|---|
+| `text.<device>_home_key` | Home key | Devices with the same key are in one home ([Intercom](/features/intercom/#home-key)). Also under **Settings → System** on the Echo Shows | Up to 256 characters | None |
+| `select.<device>_bluetooth_scanning` | Bluetooth scanning | How much of the radio's time the Bluetooth proxy spends scanning. Lower leaves more for Wi‑Fi and the Bluetooth speaker | 9, 5, 2, 1 % | 9 % |
+
+## Screen
+
+| Entity | Name | What it does | Range | Default |
+|---|---|---|---|---|
+| `number.<device>_screen_visualizer_lift` | Visualizer lift | Extra gain on the microphone for the visuals only, so quiet rooms still move them | 0–40 dB | 0 on the Show 5 and Show 8 |
+| `photos_*` | Photos | Where wallpaper photos come from; see [Photos and wallpaper](/features/photos/) | | |
+| `sensor.<device>_screen_screen_brightness` | Screen brightness | The backlight right now (sensor) | | |
+| `sensor.<device>_screen_ambient_light` | Ambient light | Sensor | | |
+
+## System
+
+| Entity | Name | What it does | Range | Default |
+|---|---|---|---|---|
+| `number.<device>_metrics_interval` | Metrics interval | How often the diagnostic sensors update | 10–3600 s | 300 s |
+| `number.<device>_minimum_cpu_cores` | Minimum CPU cores | CPU cores kept online | 1 to all | 2 |
+| `switch.<device>_remote_adb` | Remote adb | An unauthenticated root shell on port 5555 | On, Off | Off |
+
+## Buttons
+
+| Entity | What it does |
+|---|---|
+| `button.<device>_restart` | Restart EchoLocal |
+| `button.<device>_check_for_updates` | Check for an update now |
+| `button.<device>_install_selected_version`, with select `select.<device>_install_version` | Install the version picked in **Install version**, older or newer ([Updates](/features/updates/#other-versions)) |
+| `button.<device>_purge_cache`, with sensor `sensor.<device>_cached_data` | Delete cached wake word models; they download again when needed |
+| `button.<device>_test_playback` | Play a test sound |
+| `button.<device>_screen_next_poster` | Show the next wallpaper photo (Echo Show) |
+| `button.<device>_camera_reset_camera_settings` | Put every camera setting back to its default (Echo Show) |
+
+## Sensors
+
+IP address, board and color, free space, Wi‑Fi signal and traffic, Bluetooth advertisements per
+second, CPU and radio temperature, CPU cores, load average, available memory, the room's sound level
+and noise floor, light level, headphones plugged in, now playing and artist, the call state and who
+it's with, the Sendspin state, and the Cast credentials' expiry.
+
+## Events
+
+| Event | When |
+|---|---|
+| `button_action`, `button_mute`, `button_volume_up`, `button_volume_down` | A button is pressed or held (event types `press` and `hold`; the action button also `double` and `triple`), so you can use the buttons in automations |
+| `update_outcome` | An update finished or failed |
+| `esphome.alarm_ringing`, `esphome.alarm_snoozed`, `esphome.alarm_stopped` | An [alarm](/features/messages/#alarms) rings, is snoozed or stopped |
+| `esphome.screen_alert` | A Tessera alert was dismissed or a button on it tapped (action, title, screen) |
+| `esphome.echolocal_turn` | An assistant turn finished, with its timings |
+
+## Actions
+
+Call these as `esphome.<device>_<action>`, for example `esphome.kitchen_show_message`.
+
+| Action | What it does |
+|---|---|
+| `show_message`, `clear_message` | Show or clear a [message](/features/messages/) (Echo Show) |
+| `call` | Call another device by name (`peer`), with `video: true` for a video call ([Intercom](/features/intercom/#calling-by-voice)) |
+| `broadcast` | Play an audio file (`message`, its URL) on every other device in this home ([Broadcasts](/features/intercom/#broadcasts)) |
+| `alarm_list`, `alarm_set`, `alarm_enable`, `alarm_delete`, `alarm_stop`, `alarm_snooze` | [Alarms](/features/messages/#alarms) |
+| `tone_write`, `tone_rename`, `tone_remove` | [Custom tones](/features/tones/) |
+| `recordings`, `turn_audio` | The kept recordings of recent requests |
+| `settings_export` | Every setting that can be copied to another device, with its section, title and value |
+| `settings_import` | Apply settings from another device: `settings` is JSON of domain → setting → value, the shape `settings_export` lists. Answers how many changed and which were skipped |
+| `logs` | The device's recent log |
+| `<orientation>_show_page`, `_show_alert`, `_show_alert_choice`, `_dismiss_alert`, `_screen_message` | [Tessera](/use/dashboards/#tessera) pages and alerts |
+
+<Aside>
+Some actions, such as picking a wake word on the screen, need **Allow the device to perform Home
+Assistant actions** turned on in the ESPHome integration's options for the device.
+</Aside>

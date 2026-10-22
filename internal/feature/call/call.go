@@ -13,6 +13,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/feature/detect"
 	"github.com/ygelfand/echolocal/internal/feature/discovery"
 	"github.com/ygelfand/echolocal/internal/feature/media"
+	"github.com/ygelfand/echolocal/internal/feature/tones"
 	"github.com/ygelfand/echolocal/internal/feature/web"
 	"github.com/ygelfand/echolocal/internal/hardware/buttons"
 )
@@ -41,11 +42,15 @@ func Get() *sharedcall.Calls {
 			Settings: config.CallSection,
 			Peers:    discovery.Get(),
 			Port:     web.Port,
+			Secure:   web.SecurePort,
+			Client:   discovery.Client(),
 			Media:    media.Get(),
 			Sound:    device{},
+			Tones:    tones.Get(),
 		}
 		front(&d)
 		shared = sharedcall.New(d)
+		configureSettings(shared)
 		component.Settings.Add(shared.Controls())
 	})
 	return shared
@@ -60,12 +65,16 @@ func init() {
 	// Card 14: arm the firewall accept for pion's ephemeral ICE UDP ports.
 	armICEPorts()
 	// Card 7 (D-DI-8): the phone PWA reaches the same handlers through the
-	// pairing gate; Dot-to-Dot traffic passes through unwrapped.
+	// pairing gate; the phone routes stay plain-HTTP under the pairing gate.
 	gate := newPhoneGate(Get())
 	web.Handle("POST /call/offer", gate.PhoneOfferHandler())
 	web.Handle("POST /call/answer", gate.PhoneAnswerHandler())
 	web.Handle("POST /call/end", gate.PhoneEndHandler())
 	web.Handle("GET /call/phone-dropin", http.StripPrefix("/call/phone-dropin", http.FileServer(http.FS(phoneDropinFS))))
+	// upstream peer-security routes: secure peer port for device-to-device.
+	web.HandlePeer("POST /call/offer", discovery.Home(Get().OfferHandler()))
+	web.HandlePeer("POST /call/answer", discovery.Home(Get().AnswerHandler()))
+	web.HandlePeer("POST /call/end", discovery.Home(Get().EndHandler()))
 	detect.PauseWhen(Get().PausesWake)
 	buttons.Get().Take(take)
 }

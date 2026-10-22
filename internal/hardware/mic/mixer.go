@@ -26,6 +26,20 @@ type mix struct {
 	make func() Mixer
 }
 
+var vendor = sync.OnceValue(func() *subband.Weights {
+	if !beamforming {
+		return nil
+	}
+	w, err := subband.Load(subband.VendorDir)
+	if err != nil {
+		slog.Error("vendor beamformer unavailable", "err", err)
+		return nil
+	}
+	slog.Info("vendor beamformer available", "tuning", w.Name(),
+		"bands", w.Bands(), "beams", w.Beams(), "mics", w.Inputs())
+	return w
+})
+
 var mixes = sync.OnceValue(func() []mix {
 	out := []mix{{config.MixCenter, func() Mixer { return Center{} }}}
 	if !beamforming {
@@ -33,13 +47,10 @@ var mixes = sync.OnceValue(func() []mix {
 	}
 	out = append(out, mix{config.MixDelaySum, func() Mixer { return NewBeamformer() }})
 
-	w, err := subband.Load(subband.VendorDir)
-	if err != nil {
-		slog.Error("vendor beamformer unavailable", "err", err)
+	w := vendor()
+	if w == nil {
 		return out
 	}
-	slog.Info("vendor beamformer available", "tuning", w.Name(),
-		"bands", w.Bands(), "beams", w.Beams(), "mics", w.Inputs())
 	return append(out, mix{config.MixBeamformer, func() Mixer { return w.New() }})
 })
 

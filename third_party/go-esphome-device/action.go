@@ -48,6 +48,29 @@ type Call struct {
 	args map[string]*api.ExecuteServiceArgument
 }
 
+func NewCall(args map[string]any) (Call, error) {
+	c := Call{args: make(map[string]*api.ExecuteServiceArgument, len(args))}
+	for name, v := range args {
+		switch v := v.(type) {
+		case string:
+			c.args[name] = &api.ExecuteServiceArgument{String_: v}
+		case bool:
+			c.args[name] = &api.ExecuteServiceArgument{Bool_: v}
+		case int:
+			c.args[name] = &api.ExecuteServiceArgument{Int_: int32(v)}
+		case float64:
+			if v == float64(int32(v)) {
+				c.args[name] = &api.ExecuteServiceArgument{Int_: int32(v), Float_: float32(v)}
+			} else {
+				c.args[name] = &api.ExecuteServiceArgument{Float_: float32(v)}
+			}
+		default:
+			return Call{}, fmt.Errorf("argument %q: %T is not a string, number or bool", name, v)
+		}
+	}
+	return c, nil
+}
+
 func (c Call) String(name string) string {
 	if a := c.args[name]; a != nil {
 		return a.GetString_()
@@ -118,15 +141,6 @@ func wireType(t ArgType) api.ServiceArgType {
 
 // call runs the action and builds the reply. A caller that did not ask for one gets nothing back, which
 // is what makes an action that only does something as cheap as it looks.
-// Fork fix (card t_d767ce0a, live 14 Oct 2026): Home Assistant 2026.10 always
-// waits for an ExecuteServiceResponse when the action declared
-// SupportsResponse OPTIONAL (its execute_service() sets wait_for_response
-// regardless of the caller asking for return_response). The original code
-// sent nothing unless GetReturnResponse() was true, so every plain action
-// call timed out after 30s (Timeout waiting for response from action call)
-// even though the action executed. The reply is now sent whenever the
-// request carries a call_id; ResponseData is only included when the caller
-// actually asked for it, per the original contract.
 func (a *Action) call(m *api.ExecuteServiceRequest) proto.Message {
 	named := make(map[string]*api.ExecuteServiceArgument, len(m.GetArgs()))
 	for i, arg := range m.GetArgs() {
@@ -136,9 +150,18 @@ func (a *Action) call(m *api.ExecuteServiceRequest) proto.Message {
 	}
 
 	answer, err := a.Run(Call{args: named})
-	// Legacy caller (call_id 0, return_response false): fire and forget.
-	// Modern HA sets a nonzero call_id even for fire-and-forget-with-ack calls.
+	// Fork fix (card t_d767ce0a, live 14 Oct 2026): Home Assistant 2026.10 always
+	// waits for an ExecuteServiceResponse when the action declared
+	// SupportsResponse OPTIONAL (its execute_service() sets wait_for_response
+	// regardless of the caller asking for return_response). The original code
+	// sent nothing unless GetReturnResponse() was true, so every plain action
+	// call timed out after 30s (Timeout waiting for response from action call)
+	// even though the action executed. The reply is now sent whenever the
+	// request carries a call_id; ResponseData is only included when the caller
+	// actually asked for it, per the original contract.
 	if !m.GetReturnResponse() && m.GetCallId() == 0 {
+		// Legacy caller (call_id 0, return_response false): fire and forget.
+		// Modern HA sets a nonzero call_id even for fire-and-forget-with-ack calls.
 		return nil
 	}
 
@@ -147,7 +170,7 @@ func (a *Action) call(m *api.ExecuteServiceRequest) proto.Message {
 		reply.ErrorMessage = err.Error()
 		return reply
 	}
-	if answer == nil || !m.GetReturnResponse() {
+	if answer == nil {
 		return reply
 	}
 

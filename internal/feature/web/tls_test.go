@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/ygelfand/echolocal/internal/layout"
-	"github.com/ygelfand/libcountertop/pkg/runtime/status"
+	"github.com/ygelfand/echolocal/internal/status"
 )
 
 func withTempCertPaths(t *testing.T) {

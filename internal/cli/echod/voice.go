@@ -26,7 +26,8 @@ func newVoiceCmd() *cobra.Command {
 			"  afconvert -f WAVE -d LEI16@48000 -c 2 reply.wav reply48.wav\n\n" +
 			"echod holds the playback device, so stop the service first and start it after:\n" +
 			"  setprop ctl.stop ledcontroller\n" +
-			"  setprop ctl.start ledcontroller",
+			"  setprop ctl.start ledcontroller\n" +
+			"On an Echo Show the service is echod.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pcm, rate, channels, err := readWAVFile(args[0])

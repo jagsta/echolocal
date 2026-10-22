@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,9 +49,9 @@ type Player struct {
 	layers []*esphome.Select
 
 	Volume hook.Hook[int]
-	Levels *sharedvolume.Mixer
+	Levels *sharedvolume.Volume
 
-	turns atomic.Pointer[func(delta int) bool]
+	screen atomic.Pointer[Screen]
 
 	step atomic.Int64
 }
@@ -98,13 +97,17 @@ func build() *Player {
 	}
 	p.layers = noiseLayers()
 	component.Settings.Add(p.duck)
-	p.Levels = sharedvolume.NewMixer(sharedvolume.MixerOptions{
-		Output:  speaker.Get(),
-		Streams: Streams(),
-		Save: func(s config.Stream, level int) error {
-			return config.Set().Volume().Level(s, level)
+	p.Levels = sharedvolume.NewVolume(sharedvolume.Options{
+		Mixer: sharedvolume.MixerOptions{
+			Output:  speaker.Get(),
+			Streams: config.Streams(),
+			Save: func(s config.Stream, level int) error {
+				return config.Set().Volume().Level(s, level)
+			},
+			Device: component.DevicePlayback,
 		},
-		Device: component.DevicePlayback,
+		Main:      sharedvolume.Steps(p, VolumeSteps),
+		MainSteps: VolumeSteps,
 	})
 	p.Levels.Watch(config.StreamMedia, func(int) { p.Changed() })
 
@@ -253,13 +256,6 @@ func (v mediaVolume) StepVolume(delta int) {
 
 func (v mediaVolume) Mute(muted bool) { v.p.Levels.Mute(config.StreamMedia, muted) }
 
-func Streams() []config.Stream {
-	return slices.DeleteFunc(
-		config.Streams(),
-		func(s config.Stream) bool { return s == config.StreamMain },
-	)
-}
-
 func (p *Player) SetIdle(v schema.Delay) {
 	if err := config.Set().Idle().Media(v); err != nil {
 		slog.Warn("saving the media idle timeout", "err", err)
@@ -292,7 +288,7 @@ func (p *Player) apply(step int, tell bool) int {
 		return step
 	}
 
-	p.show(step)
+	p.show(float64(step) / VolumeSteps)
 	p.Volume.Emit(step)
 	slog.Info("volume", "step", step, "of", VolumeSteps)
 	return step
@@ -300,13 +296,31 @@ func (p *Player) apply(step int, tell bool) int {
 
 func (p *Player) Step() int { return int(p.step.Load()) }
 
-func (p *Player) SetTurns(fn func(delta int) bool) { p.turns.Store(&fn) }
+func (p *Player) Settings() *sharedvolume.Ducking { return p.duck }
+
+type Screen interface {
+	Selected() (config.Stream, bool)
+	Top() any
+}
+
+func (p *Player) SetScreen(s Screen) { p.screen.Store(&s) }
 
 func (p *Player) turn(delta int) {
-	if fn := p.turns.Load(); fn != nil && (*fn)(delta) {
+	aim := sharedvolume.Aim{
+		Mode:  config.Get().Media.Buttons,
+		Heard: func(s config.Stream) bool { return speaker.Get().Heard(s, sharedvolume.Recent) },
+	}
+	if s := p.screen.Load(); s != nil {
+		aim.Picked, aim.Screen = (*s).Selected, (*s).Top
+	}
+	s := sharedvolume.Target(aim)
+	if s == config.StreamMain {
+		p.Adjust(delta)
 		return
 	}
-	p.Adjust(delta)
+	p.Levels.Set(s, p.Levels.Level(s)+delta*sharedvolume.Step)
+	feedback.Get().Preview(s)
+	p.show(float64(p.Levels.Level(s)) / 100)
 }
 
 func (p *Player) Adjust(delta int) {
@@ -314,13 +328,13 @@ func (p *Player) Adjust(delta int) {
 	feedback.Get().Preview(config.StreamMain)
 }
 
-func (p *Player) show(step int) {
+func (p *Player) show(fraction float64) {
 	leds := led.Get()
 	if !leds.Present() {
 		return
 	}
 
-	frame := led.Volume(float64(step) / VolumeSteps)
+	frame := led.Volume(fraction)
 	leds.Claim(led.PriorityNotice).PaintFor(frame, volumeFlash)
 }
 

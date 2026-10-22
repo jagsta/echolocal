@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/ygelfand/libcountertop/pkg/network/releases"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
 	"github.com/ygelfand/libcountertop/pkg/runtime/safe"
 	"github.com/ygelfand/libcountertop/pkg/settings/schema"
@@ -26,8 +27,12 @@ var get = sync.OnceValue(func() *firmware.Firmware[update.Manifest] {
 		Channels:  config.Labels(update.Channels()),
 		Busy:      busy{},
 		OnFailure: feedback.Failure,
+		Reconnect: func() { component.Reconnect.Emit(struct{}{}) },
 	})
-	component.Subscribed.Listen(func(struct{}) { safe.Go("update announce", f.Announce) })
+	component.Subscribed.Listen(func(struct{}) {
+		safe.Go("update announce", f.Announce)
+		f.ListLater()
+	})
 	return f
 })
 
@@ -66,6 +71,16 @@ func (source) Install(ctx context.Context, m update.Manifest, progress func(floa
 }
 
 func (source) Restart(why string) { update.Restart(why) }
+
+func (source) Builds(
+	ctx context.Context,
+) ([]releases.Release, error) {
+	return update.Releases(ctx)
+}
+
+func (source) FetchBuild(ctx context.Context, version string) (update.Manifest, error) {
+	return update.FetchTag(ctx, version)
+}
 
 func (source) RolledBack() string { return update.RolledBack() }
 

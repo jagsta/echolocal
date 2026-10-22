@@ -9,7 +9,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/hardware/speaker"
 )
 
-func newOutput() *castoutput.Output {
+func NewOutput() *castoutput.Output {
 	a := speaker.Sound().Backgrounds()
 	return castoutput.New(
 		castoutput.Options{

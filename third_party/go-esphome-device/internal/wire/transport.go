@@ -28,6 +28,7 @@ var (
 	ErrShortPayload   = errors.New("wire: payload shorter than declared length")
 	ErrLengthMismatch = errors.New("wire: declared message length does not match payload")
 	ErrNotReady       = errors.New("wire: handshake not complete")
+	ErrFrameTooLarge  = errors.New("wire: message too large for one noise frame")
 
 	ErrPlaintextAttempted = errors.New("wire: client attempted plaintext on an encrypted transport")
 )

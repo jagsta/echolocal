@@ -1,0 +1,70 @@
+---
+title: Apps
+description: The Apps screen, dock favorites, and each app.
+---
+
+On the Echo Shows.
+
+The grid in the dock opens the Apps screen. Tap the star on an app to keep it in the dock; drag to
+reorder. **Media** and **Intercom** are in the dock to start with.
+
+| App | |
+|---|---|
+| **Media** | The [player](/features/music/#player-echo-show) |
+| **Intercom** | [Calls](/features/intercom/) to other devices |
+| **Alarms** | [Alarms](/features/messages/#alarms) with a wake light |
+| **Radio** | Internet radio |
+| **Radar** | Animated weather radar |
+| **Calendar** | Upcoming events from Home Assistant calendars |
+| **Shopping list** | A Home Assistant to-do list |
+| **Mirror** | The camera, full screen |
+| **Cameras** | Your Home Assistant cameras |
+| **Lights**, **Switches** | Your [lights and switches](/use/dashboards/#lights-and-switches), full screen |
+
+## Radio
+
+Stations come from the **Radio Browser** integration, which you add in Home Assistant first. The
+radio opens on **Local** and **Popular** stations; star a station to put it on the dial.
+
+## Radar
+
+An animated loop of rain and clouds around your home, with a short-range forecast. Under
+**Settings → Display → Dashboard → Weather**:
+
+- **Radar source**: **Auto**, **NWS** (US only) or **RainViewer**
+- **Radar starting range**: 50 to 800 miles, default 200
+
+Saying "radar" opens it, unless it's turned off in the [voice triggers](/features/voice/#voice-triggers).
+
+## Calendar
+
+Pick the calendars and **Days to show** (3, 7 or 14) under **Settings → Home control → Calendar**.
+
+## Shopping list
+
+Pick the to-do list under **Settings → Home control → Shopping list**. Add items with the on-screen
+keyboard, tap to check them off, and turn on **Show completed items** to see the checked ones.
+
+## Mirror
+
+The camera, full screen. It's on devices with a camera. Saying "mirror" opens it, unless it's
+turned off in the [voice triggers](/features/voice/#voice-triggers).
+
+## Cameras
+
+The cameras in Home Assistant, as pictures on a grid, sorted by area. Swipe for more pages. Tap one
+to watch it full screen: live video with a sound button when Home Assistant can stream that camera
+and the [EchoLocal integration](/start/integration/) is installed, otherwise a picture that keeps
+updating. Tap again to go back.
+
+It needs **Allow the device to perform Home Assistant actions** turned on for the device in the
+ESPHome integration. Set it up under **Settings → Home control → Cameras**:
+
+| Setting | What it does | Default |
+|---|---|---|
+| **Dashboard tab** | Adds a **Cameras** tab to the [native dashboard](/use/dashboards/#cameras) | Off |
+| **Select** | Which cameras to show | All cameras |
+| **Thumbnail size** | 1 (small) to 5 (one camera per row) | 3 |
+| **Refresh** | How often the pictures update, 1 to 60 s, or Off | 5 s |
+| **Auto paginate** | Move to the next page on its own, 5 to 120 s, or Off | Off |
+| **Home Assistant URL** | Where to fetch the pictures from. Leave it empty to use the address the device finds on your network | Empty |

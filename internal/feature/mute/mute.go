@@ -10,11 +10,14 @@ import (
 	sharedtone "github.com/ygelfand/libcountertop/pkg/audio/tone"
 	"github.com/ygelfand/libcountertop/pkg/hook"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
+	setting "github.com/ygelfand/libcountertop/pkg/settings"
 	"github.com/ygelfand/libcountertop/pkg/settings/schema"
 
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/feedback"
+	"github.com/ygelfand/echolocal/internal/feature/tones"
 	"github.com/ygelfand/echolocal/internal/hardware/buttons"
 	"github.com/ygelfand/echolocal/internal/hardware/indicate"
 	"github.com/ygelfand/echolocal/internal/hardware/led"
@@ -39,7 +42,7 @@ type Mute struct {
 
 	sw         *esphome.Switch
 	brightness *esphome.Select
-	sound      *esphome.Select
+	sound      *setting.Controls[config.Microphone]
 	line       privacy.Mute
 	led        privacy.LED
 
@@ -68,15 +71,7 @@ func build() *Mute {
 			},
 		},
 		claim: indicate.Get().Claim(indicate.PriorityMute),
-		sound: &esphome.Select{
-			Base: esphome.Base{
-				ObjectID: "mute_sound",
-				DeviceID: component.DeviceMicrophone,
-				Name:     "Mute sound",
-				Icon:     "mdi:music-note",
-				Category: esphome.CategoryConfig,
-			},
-		},
+
 		ring: &esphome.Select{
 			Base: esphome.Base{
 				ObjectID: "ring_muted",
@@ -88,8 +83,20 @@ func build() *Mute {
 		},
 	}
 	m.sw.OnCommand = m.Set
-	component.Bind(m.sound, speaker.MuteTones(), func(t schema.Chime) schema.Chime { return t },
-		config.Set().Microphone().MuteSound)
+	m.sound = &setting.Controls[config.Microphone]{
+		Table: sharedtone.MuteTable(
+			func(c *config.Microphone) *schema.Chime { return &c.MuteSound },
+			tones.Get().Choices,
+		),
+		Device: component.DeviceMicrophone,
+		Read:   config.MicrophoneSection.Read,
+		Save: func(s setting.Setting[config.Microphone], v string) error {
+			return setting.Store(config.MicrophoneSection, s, v)
+		},
+	}
+	component.Settings.Add(m.sound)
+	tones.Get().Changed.Listen(func(struct{}) { m.sound.Refresh() })
+
 	component.BindEffect(m.ring, led.EffectNames(), m.show, config.Set().Ring().Muted)
 
 	m.brightness = &esphome.Select{
@@ -121,7 +128,7 @@ func build() *Mute {
 func (m *Mute) Name() string { return "microphone mute" }
 
 func (m *Mute) Entities() []esphome.Entity {
-	ents := []esphome.Entity{m.sw, m.brightness, m.sound}
+	ents := append([]esphome.Entity{m.sw, m.brightness}, m.sound.Entities()...)
 	if component.Board().Has(board.Ring) {
 		ents = append(ents, m.ring)
 	}
@@ -137,11 +144,7 @@ func (m *Mute) Muted() (bool, error) {
 
 // The mute line does not survive a reboot.
 func (m *Mute) Restore(c config.Config) {
-	component.Restore(
-		m.sound,
-		c.Microphone.MuteSound,
-		func(t schema.Chime) schema.Chime { return t },
-	)
+	m.sound.Publish()
 
 	if m.line == nil {
 		return
@@ -193,7 +196,7 @@ func (m *Mute) pressed(e buttons.Event) {
 	case buttons.Tap:
 		m.Toggle()
 	case buttons.Hold:
-		speaker.Sound().Chime(config.StreamFeedback, sharedtone.ToneMuteHold)
+		feedback.Get().Hold()
 	}
 }
 
@@ -221,8 +224,10 @@ func (m *Mute) settled(asked bool) {
 	}
 	slog.Info("microphone mute", "muted", muted)
 
-	speaker.Sound().
-		Chime(config.StreamFeedback, speaker.MuteTone(config.Get().Microphone.MuteSound, muted))
+	snd := sharedtone.MuteSound(tones.Get(), config.Get().Microphone.MuteSound, muted)
+	if !snd.Empty() {
+		speaker.Sound().Sound(config.StreamFeedback, sharedtone.Level, snd)
+	}
 }
 
 const pollInterval = 25 * time.Millisecond

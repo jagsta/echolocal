@@ -15,6 +15,7 @@ import (
 	"github.com/ygelfand/libcountertop/pkg/media/cast/protocols/youtube"
 	"github.com/ygelfand/libcountertop/pkg/media/cast/protocols/youtube/unplugged"
 	"github.com/ygelfand/libcountertop/pkg/media/castoutput"
+	"github.com/ygelfand/libcountertop/pkg/media/castreceiver"
 	"github.com/ygelfand/libcountertop/pkg/media/playback"
 	"github.com/ygelfand/libcountertop/pkg/media/videostream"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
@@ -26,6 +27,8 @@ import (
 	"github.com/ygelfand/echolocal/internal/hardware/display"
 	"github.com/ygelfand/echolocal/internal/ui"
 )
+
+func configureSettings(r *castreceiver.Receiver) {}
 
 func wants(setting.Group) bool { return true }
 

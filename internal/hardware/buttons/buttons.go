@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/ygelfand/libcountertop/pkg/hook"
+	"github.com/ygelfand/libcountertop/pkg/input"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
 	"github.com/ygelfand/libcountertop/pkg/runtime/service"
 
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
-	"github.com/ygelfand/echolocal/internal/lib/input"
 )
 
 func init() {
@@ -52,6 +52,7 @@ func keyFor(code uint16) (Name, bool) {
 const (
 	LongPress      = 700 * time.Millisecond
 	RepeatInterval = 200 * time.Millisecond
+	MultiTap       = 300 * time.Millisecond
 )
 
 type Kind string
@@ -62,6 +63,10 @@ const (
 	Hold Kind = "hold"
 
 	Repeat Kind = "repeat"
+
+	DoubleTap Kind = "double"
+
+	TripleTap Kind = "triple"
 )
 
 type Event struct {
@@ -72,6 +77,19 @@ type Event struct {
 func (e Event) String() string { return string(e.Name) + " " + string(e.Kind) }
 
 func repeats(n Name) bool { return n == VolumeUp || n == VolumeDown }
+
+func counted(n Name) bool { return n == Action }
+
+func tapKind(taps int) Kind {
+	switch taps {
+	case 1:
+		return Tap
+	case 2:
+		return DoubleTap
+	default:
+		return TripleTap
+	}
+}
 
 type Controller struct {
 	Events hook.Hook[Event]
@@ -85,6 +103,9 @@ type Controller struct {
 	covered bool
 
 	cut, cutKnown bool
+
+	taps    int
+	tapping *time.Timer
 }
 
 var (
@@ -318,6 +339,14 @@ func (c *Controller) key(e input.Event, down map[uint16]*held) {
 func (c *Controller) pressed(name Name) *held {
 	h := &held{}
 
+	if counted(name) {
+		c.mu.Lock()
+		if c.tapping != nil {
+			c.tapping.Stop()
+		}
+		c.mu.Unlock()
+	}
+
 	if repeats(name) {
 		c.emit(name, Tap)
 
@@ -335,6 +364,8 @@ func (c *Controller) pressed(name Name) *held {
 		}(h.done, h.ticker)
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.timer = time.AfterFunc(LongPress, func() {
 		h.mu.Lock()
 		h.long = true
@@ -342,6 +373,11 @@ func (c *Controller) pressed(name Name) *held {
 
 		if !repeats(name) {
 			h.stop()
+		}
+		if counted(name) {
+			c.mu.Lock()
+			c.taps = 0
+			c.mu.Unlock()
 		}
 		c.emit(name, Hold)
 	})
@@ -358,5 +394,28 @@ func (c *Controller) released(name Name, h *held) {
 	if long || repeats(name) {
 		return
 	}
+	if counted(name) {
+		c.count(name)
+		return
+	}
 	c.emit(name, Tap)
+}
+
+func (c *Controller) count(name Name) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.taps++
+	c.tapping = time.AfterFunc(MultiTap, func() { c.settle(name) })
+}
+
+func (c *Controller) settle(name Name) {
+	c.mu.Lock()
+	taps := c.taps
+	c.taps, c.tapping = 0, nil
+	c.mu.Unlock()
+
+	if taps > 0 {
+		c.emit(name, tapKind(taps))
+	}
 }

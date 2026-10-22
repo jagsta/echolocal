@@ -52,6 +52,7 @@ func Load(path string) (*Store, error) {
 			}
 			return migrateIntercomEffects(c)
 		},
+		func(data []byte, c *Config) error { return schema.MigratePhotos(data, &c.Photos) },
 	)
 	shared := schema.NewSections(func() *storage.Store[Config] { return s }, sharedOf).Writer()
 	return &Store{Store: s, shared: shared}, err

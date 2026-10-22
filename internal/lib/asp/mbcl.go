@@ -11,24 +11,34 @@ const attack = 2 * time.Millisecond
 const floorDB = -120
 
 type mbclState struct {
-	split *crossover
-	bands []*bandState
-	full  *limiter
-	work  [][]float32
+	in     float32
+	split  *crossover
+	bands  []*bandState
+	fullIn float32
+	full   *limiter
+	work   [][]float32
 }
 
 type bandState struct {
+	compIn        float64
 	compThreshDB  float64
 	compRatio     float64
 	compGainMinDB float64
+	limIn         float32
 
 	env    float64
+	relCo  float64
 	gainDB float64
 	attack float64
-	relCo  float64
+	relax  float64
+	gain   float64
+	step   float64
+	left   int
 
 	lim *limiter
 }
+
+const stride = 32
 
 const lookahead = 2 * time.Millisecond
 
@@ -58,29 +68,29 @@ func (l *limiter) pushLow(i int, want float64) {
 	l.tail = (l.tail + 1) % len(l.low)
 }
 
-func newMBCL(m mbcl, rate int) (*mbclState, error) {
+func newMBCL(name string, m mbcl, rate int) (*mbclState, error) {
 	if !m.PreFilterBypass {
-		return nil, fmt.Errorf("asp: %s wants a prefilter we do not have", mbclFile)
+		return nil, fmt.Errorf("asp: %s wants a prefilter we do not have", name)
 	}
 
 	s := &mbclState{
-		split: newCrossover(m.Crossovers, rate),
-		full:  newLimiter(m.Full.LimThresh, millis(m.Full.LimRelease), rate),
+		in:     float32(gainOf(m.InVol)),
+		split:  newCrossover(m.Crossovers, rate),
+		fullIn: float32(gainOf(m.Full.LimInVol)),
+		full:   newLimiter(m.Full.LimThresh, millis(m.Full.LimRelease), rate),
 	}
 
 	for _, b := range m.Bands {
-		if b.CompInVol != 0 || b.LimInVol != 0 {
-			return nil, fmt.Errorf("asp: %s asks for band input gain we do not apply", mbclFile)
-		}
-		if b.CompRatio < 1 {
-			return nil, fmt.Errorf("asp: %s has a compression ratio of %g", mbclFile, b.CompRatio)
-		}
 		s.bands = append(s.bands, &bandState{
+			compIn:        gainOf(b.CompInVol),
 			compThreshDB:  b.CompThresh,
-			compRatio:     b.CompRatio,
+			compRatio:     max(b.CompRatio, 1),
 			compGainMinDB: b.CompGainMin,
-			attack:        smoothing(attack, rate),
+			limIn:         float32(gainOf(b.LimInVol)),
 			relCo:         smoothing(millis(b.LimRelease), rate),
+			attack:        strided(smoothing(attack, rate)),
+			relax:         strided(smoothing(millis(b.LimRelease), rate)),
+			gain:          1,
 			lim:           newLimiter(b.LimThresh, millis(b.LimRelease), rate),
 		})
 	}
@@ -107,12 +117,16 @@ func smoothing(d time.Duration, rate int) float64 {
 	return 1 - math.Exp(-1/(d.Seconds()*float64(rate)))
 }
 
+func strided(co float64) float64 { return 1 - math.Pow(1-co, stride) }
+
 func millis(v float64) time.Duration { return time.Duration(v * float64(time.Millisecond)) }
+
+func gainOf(db float64) float64 { return math.Pow(10, db/20) }
 
 func (s *mbclState) reset() {
 	s.split.reset()
 	for _, b := range s.bands {
-		b.env, b.gainDB = 0, 0
+		b.env, b.gainDB, b.gain, b.step, b.left = 0, 0, 1, 0, 0
 		b.lim.reset()
 	}
 	s.full.reset()
@@ -132,6 +146,9 @@ func (s *mbclState) process(x []float32) {
 		}
 	}
 
+	for i := range x {
+		x[i] *= s.in
+	}
 	s.split.process(x, s.work)
 	for i, b := range s.bands {
 		b.process(s.work[i])
@@ -142,38 +159,49 @@ func (s *mbclState) process(x []float32) {
 		for _, band := range s.work {
 			sum += band[i]
 		}
-		x[i] = sum
+		x[i] = sum * s.fullIn
 	}
 	s.full.process(x)
 }
 
 func (b *bandState) process(x []float32) {
 	for i, v := range x {
-		level := b.track(float64(v))
-
-		want := 0.0
-		if level > b.compThreshDB {
-			want = -(level - b.compThreshDB) * (1 - 1/b.compRatio)
-			want = math.Max(want, b.compGainMinDB)
+		in := float64(v) * b.compIn
+		b.track(in)
+		if b.left == 0 {
+			b.steer()
 		}
-
-		b.gainDB = approach(b.gainDB, want, b.attack, b.relCo)
-		x[i] = float32(float64(v) * math.Pow(10, b.gainDB/20))
+		b.left--
+		b.gain += b.step
+		x[i] = float32(in*b.gain) * b.limIn
 	}
 	b.lim.process(x)
 }
 
-func (b *bandState) track(v float64) float64 {
+func (b *bandState) track(v float64) {
 	a := math.Abs(v)
 	if a > b.env {
 		b.env = a
 	} else {
 		b.env += (a - b.env) * b.relCo
 	}
-	if b.env <= 0 {
-		return floorDB
+}
+
+func (b *bandState) steer() {
+	level := float64(floorDB)
+	if b.env > 0 {
+		level = 20 * math.Log10(b.env)
 	}
-	return 20 * math.Log10(b.env)
+
+	want := 0.0
+	if level > b.compThreshDB {
+		want = -(level - b.compThreshDB) * (1 - 1/b.compRatio)
+		want = max(want, b.compGainMinDB)
+	}
+
+	b.gainDB = approach(b.gainDB, want, b.attack, b.relax)
+	b.step = (math.Pow(10, b.gainDB/20) - b.gain) / stride
+	b.left = stride
 }
 
 func (l *limiter) process(x []float32) {
@@ -202,7 +230,7 @@ func (l *limiter) process(x []float32) {
 		}
 
 		v := float64(out) * l.gain
-		x[i] = float32(math.Max(-l.ceiling, math.Min(l.ceiling, v)))
+		x[i] = float32(max(-l.ceiling, min(l.ceiling, v)))
 	}
 }
 

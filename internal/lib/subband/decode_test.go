@@ -20,6 +20,8 @@ func TestDecodeV2(t *testing.T) {
 		WindowLen: 768,
 		Beams:     8,
 		Taps:      4,
+		groups:    alone(8),
+		margin:    1,
 		boostDB:   7.2,
 	}
 
@@ -39,7 +41,7 @@ func TestDecodeV2(t *testing.T) {
 	}
 	var out []result
 
-	for _, order := range []string{"maet"} {
+	for _, order := range []string{"emat", "meat", "maet"} {
 		for _, down := range []bool{false, true} {
 			for _, flip := range []bool{false} {
 				for _, mics := range micOrders(t) {
@@ -125,6 +127,8 @@ func TestBeamEnergiesPairUp(t *testing.T) {
 		WindowLen: 768,
 		Beams:     8,
 		Taps:      4,
+		groups:    alone(8),
+		margin:    1,
 		boostDB:   7.2,
 	}
 	win, err := readFloats(window, base.WindowLen)

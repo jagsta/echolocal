@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ygelfand/libcountertop/pkg/media/broadcast"
 	shared "github.com/ygelfand/libcountertop/pkg/network/discovery"
 	sharedpeer "github.com/ygelfand/libcountertop/pkg/network/peer"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
@@ -31,6 +32,7 @@ func (identity) Self() sharedpeer.Peer {
 		),
 		Version: layout.Version,
 		Port:    web.Port,
+		Secure:  web.SecurePort,
 		Host:    layout.Slug(config.Get().Device.Name),
 	}
 }
@@ -50,10 +52,13 @@ func caps() []string {
 	if component.Board().CameraWidth > 0 {
 		c = append(c, "video")
 	}
+	if config.Get().Call.Broadcasts {
+		c = append(c, broadcast.Cap)
+	}
 	return c
 }
 
-var get = sync.OnceValue(func() *shared.Discovery { return shared.New(identity{}) })
+var get = sync.OnceValue(func() *shared.Discovery { return shared.New(identity{}, judge{}) })
 
 func Get() *shared.Discovery { return get() }
 func init() {

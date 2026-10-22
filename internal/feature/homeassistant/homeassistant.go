@@ -9,10 +9,13 @@ import (
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/states"
 )
 
 var get = sync.OnceValue(func() *sharedha.Controller {
-	return sharedha.New(sharedha.Settings{Home: config.HomeSection, API: config.APISection})
+	c := sharedha.New(sharedha.Settings{Home: config.HomeSection, API: config.APISection})
+	c.FollowIntegration(states.Get())
+	return c
 })
 
 func Get() *sharedha.Controller { return get() }

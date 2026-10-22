@@ -26,6 +26,10 @@ type geometry struct {
 
 	mics []int
 
+	groups [][]int
+	margin float32
+	hold   int
+
 	// The vendor applies this gain after the beamformer; its weights are not normalised.
 	boostDB float64
 
@@ -48,6 +52,9 @@ var known = []geometry{
 		split:       true,
 		tapDown:     true,
 		mics:        []int{0, 1, 2, 3, 4, 5, 6},
+		groups:      [][]int{{0}, {1}, {2}, {3}, {4}, {5}},
+		margin:      1,
+		hold:        40,
 		boostDB:     7.2,
 		windowFile:  "coefs_FilterBank_640.cfg",
 		weightsFile: "coefs_FBF.cfg",
@@ -61,10 +68,23 @@ var known = []geometry{
 		WindowLen: 768,
 		Beams:     8,
 		Taps:      4,
-		order:     "maet",
-		perGroup:  1,
-		// AFE.cfg's "Channel Map" counts channels in Amazon's order, not this array's.
-		mics:        []int{0, 3, 2, 1},
+		// The file zeroes band 0 once every 1024 values: beams and microphones outside, bands, then taps.
+		order:    "emat",
+		perGroup: 1,
+		mics:     []int{1, 2, 4, 5},
+		// AFE.cfg "ASR GroupBeamMergerV2 3beamsGroup": Beam Group Margin 1.26, Num Frames To Hold Beam Group 12.
+		groups: [][]int{
+			{0, 1, 2},
+			{1, 2, 3},
+			{2, 3, 4},
+			{3, 4, 5},
+			{4, 5, 6},
+			{5, 6, 7},
+			{6, 7, 0},
+			{7, 0, 1},
+		},
+		margin:      1.26,
+		hold:        12,
 		boostDB:     7.2,
 		windowFile:  "coefs_FilterBank_AnalysisSynthesis_768cvxGLow.cfg",
 		weightsFile: "coefs_FBFV2_LowLatency_8beams.cfg",
@@ -84,7 +104,11 @@ func (g geometry) Channels() int {
 func (g geometry) firstSpeechBand() int { return g.Bands / 32 }
 func (g geometry) lastSpeechBand() int  { return g.Bands / 2 }
 
-func (g geometry) holdFrames() int { return 160 * 16000 / 1000 / g.Hop }
+// AFE.cfg ARA_V2: Signal Power alpha fast 0.75; T frames GBM SNR switch 512, the noise buffer the minimum is taken over.
+const (
+	signalAlpha = 0.75
+	noiseFrames = 512
+)
 
 const VendorDir = "/vendor/etc/audio-algorithms"
 

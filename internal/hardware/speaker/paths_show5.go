@@ -1,4 +1,4 @@
-//go:build board_checkers || board_cronos || board_crown
+//go:build board_checkers || board_cronos || board_crown || board_athena
 
 package speaker
 
@@ -64,14 +64,25 @@ var showAmps = []showAmp{
 		},
 	},
 	{
+		name:   "tas5805m-amplifier",
+		marker: "Master TAS5805m Playback Volume",
+		init: []kctl{
+			{name: "Audio_I2S0dl1_hd_Switch", value: "On"},
+			{name: "Master TAS5805m Playback Volume", level: 100},
+		},
+		on:  []kctl{{name: AmpSwitch, value: "On"}},
+		off: []kctl{{name: AmpSwitch, value: "Off"}},
+	},
+	{
 		name:   "max98396",
 		marker: "Speaker Volume A",
 		init: []kctl{
-			{name: AmpSwitch, value: "On"},
+			// No AmpSwitch: on cronos it drives the MAX98396's reset, and writing it wipes the
+			// setup the codec driver did at probe, leaving the speaker silent until a reboot.
 			{name: "Audio_I2S0dl1_hd_Switch", value: "On"},
 			{name: "Digital Volume A", level: 127},
 			{name: "Speaker Volume A", level: 8},
-			{name: "Speaker Safe Mode A", value: "Off"},
+			{name: "Speaker Safe Mode A", level: 0}, // BOOL on this kernel, not an enum
 		},
 	},
 }

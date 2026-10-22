@@ -34,7 +34,7 @@ import (
 	"time"
 
 	"github.com/ygelfand/libcountertop/pkg/network/address"
-	"github.com/ygelfand/libcountertop/pkg/runtime/status"
+	"github.com/ygelfand/echolocal/internal/status"
 
 	"github.com/ygelfand/echolocal/internal/android/firewall"
 	"github.com/ygelfand/echolocal/internal/config"

@@ -2,11 +2,16 @@ package control
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 
 	harness "github.com/ygelfand/libcountertop/pkg/runtime/control"
+	"github.com/ygelfand/libcountertop/pkg/runtime/control/alarmcmd"
 
+	"github.com/ygelfand/echolocal/internal/android/prop"
+	"github.com/ygelfand/echolocal/internal/feature/alarm"
+	"github.com/ygelfand/echolocal/internal/layout"
 	"github.com/ygelfand/echolocal/internal/logging"
 )
 
@@ -14,6 +19,7 @@ func (c *Control) tree() *cobra.Command {
 	t := harness.NewTree()
 	t.Add(harness.DeviceTask, telling()...)
 	t.Add(harness.DeviceTask, harness.WaitCommand())
+	t.Add(harness.DeviceTask, alarmcmd.Command(alarm.Get))
 	t.Add(harness.InputTask, c.inputEngine().Commands()...)
 	t.Add(harness.AudioTask, hearing()...)
 	t.Add(harness.AudioTask, cancelling()...)
@@ -39,6 +45,15 @@ func telling() []*cobra.Command {
 			level, err := harness.LogLevel(&logging.Log.Level, args)
 			if err != nil {
 				return err
+			}
+			if len(args) == 1 {
+				priority := "I"
+				if logging.Log.Level.Level() < slog.LevelInfo {
+					priority = "D"
+				}
+				if err := prop.Set("log.tag."+layout.LogTag, priority); err != nil {
+					return err
+				}
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), level)
 			return nil

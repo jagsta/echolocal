@@ -5,7 +5,11 @@ import (
 	"time"
 )
 
-func follower(p Palette, r Room) Frame {
+func follower(p Palette, r Room) Frame { return compass(p, r, facing) }
+
+func beamFollower(p Palette, r Room) Frame { return compass(p, r, beam) }
+
+func compass(p Palette, r Room, toward func(Room) (float64, bool)) Frame {
 	const (
 		narrow = 1.2
 		wide   = 3.2
@@ -19,7 +23,7 @@ func follower(p Palette, r Room) Frame {
 	return func(time.Duration) []Color {
 		x := level(r)
 
-		if want, ok := facing(r); ok {
+		if want, ok := toward(r); ok {
 			switch {
 			case !known:
 				at, known = want, true

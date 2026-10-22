@@ -20,6 +20,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/lib/audio"
+	"github.com/ygelfand/echolocal/internal/lib/subband"
 )
 
 const (
@@ -34,8 +35,6 @@ const (
 
 const Refs = Channels - Mics
 
-const floorReferenceGain = 20
-
 const FrameSamples = Rate / 50
 
 // The init service holding the capture device on a fresh boot.
@@ -49,7 +48,7 @@ const (
 type Source struct {
 	startup atomic.Pointer[sharedcomponent.Progress]
 	devMu   sync.Mutex
-	pcm     *alsa.Capture
+	pcm     stream
 
 	mu        sync.Mutex
 	listeners map[int]*listener
@@ -82,6 +81,10 @@ type Source struct {
 	finder     *Beamformer
 	facing     atomic.Int32
 	wantFacing atomic.Bool
+
+	compass      *subband.Beamformer
+	compassBeam  atomic.Int32
+	compassAsked atomic.Int64
 }
 
 func (s *Source) SetMixing(m config.Mixing) config.Mixing {
@@ -117,6 +120,7 @@ func New() *Source {
 	}
 	s.finder.hold = 1
 	s.facing.Store(-1)
+	s.compassBeam.Store(-1)
 	s.adapt.Store(true)
 	s.suppress = newSuppressor(s.cancel)
 	return s
@@ -124,12 +128,10 @@ func New() *Source {
 
 func newLeveler(cfg config.Microphone) *level.Leveler {
 	return level.New(level.Config{
-		Rate:          Rate,
-		Frame:         FrameSamples,
-		ReferenceGain: floorReferenceGain,
-		Gain:          cfg.Gain,
-		Sensitivity:   cfg.Sensitivity,
-		Leveling:      cfg.Leveling,
+		Rate:        Rate,
+		Frame:       FrameSamples,
+		Sensitivity: cfg.Sensitivity,
+		Leveling:    cfg.Leveling,
 	})
 }
 
@@ -197,15 +199,13 @@ func Acquire() (*Source, error) {
 	return s, nil
 }
 
+type stream interface {
+	Read(buf []byte) (int, error)
+	Close() error
+}
+
 func (s *Source) open() error {
-	pcm, err := alsa.Open(Card, CaptureDevice, alsa.Config{
-		Channels:   Channels,
-		Rate:       Rate,
-		Format:     alsa.FormatS24_3LE,
-		Bits:       Bits,
-		PeriodSize: period,
-		Periods:    periods,
-	})
+	pcm, err := openCapture()
 	if err != nil {
 		return fmt.Errorf("mic: opening capture: %w", err)
 	}
@@ -219,7 +219,7 @@ func (s *Source) open() error {
 	return nil
 }
 
-func (s *Source) device() *alsa.Capture {
+func (s *Source) device() stream {
 	s.devMu.Lock()
 	defer s.devMu.Unlock()
 	return s.pcm
@@ -374,6 +374,7 @@ func (s *Source) broadcast(raw []byte) {
 
 	mics := Decode(raw)
 	frame := s.mixer.Mix(mics)
+	heard := frame
 
 	sounding := s.sounding(raw, len(mics[CenterMic]))
 	s.SetPlayback(sounding)
@@ -411,6 +412,7 @@ func (s *Source) broadcast(raw []byte) {
 	s.lowCut.apply(frame)
 
 	s.findFacing(mics)
+	s.followBeam(mics)
 
 	for _, l := range s.listeners {
 		if l.unleveled {
@@ -418,7 +420,7 @@ func (s *Source) broadcast(raw []byte) {
 		}
 	}
 
-	s.Process(frame)
+	s.Process(heard, frame)
 	s.Add(frame)
 
 	for _, l := range s.listeners {
@@ -466,6 +468,14 @@ func (s *Source) offer(l *listener, frame []int16) {
 }
 
 func (s *Source) Dropped() uint64 { return s.dropped.Load() }
+
+func SetGain(db int) error {
+	if err := config.Set().Microphone().Gain(db); err != nil {
+		return err
+	}
+	applyGain(db)
+	return nil
+}
 
 func (s *Source) Close() error {
 	s.devMu.Lock()

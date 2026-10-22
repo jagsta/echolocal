@@ -4,8 +4,12 @@ package all
 
 import (
 	_ "github.com/ygelfand/echolocal/internal/feature/a2dp"
+	_ "github.com/ygelfand/echolocal/internal/feature/airplay"
+	_ "github.com/ygelfand/echolocal/internal/feature/apps"
 	_ "github.com/ygelfand/echolocal/internal/feature/assistant"
 	_ "github.com/ygelfand/echolocal/internal/feature/brightness"
+	_ "github.com/ygelfand/echolocal/internal/feature/cameras"
+	_ "github.com/ygelfand/echolocal/internal/feature/commands"
 	_ "github.com/ygelfand/echolocal/internal/feature/dashboard"
 	_ "github.com/ygelfand/echolocal/internal/feature/drawer"
 	_ "github.com/ygelfand/echolocal/internal/feature/drm"

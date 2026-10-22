@@ -50,6 +50,8 @@ type Conn struct {
 	logsSubbed     bool
 	logLevel       api.LogLevel
 	helloCompleted bool
+	handling       bool
+	leaving        bool
 }
 
 // hooks are the server's callbacks, handed down so a connection can reach them without holding the
@@ -139,6 +141,18 @@ func (c *Conn) Send(msg proto.Message) error {
 
 func (c *Conn) Close() error { return c.transport.Close() }
 
+// leave closes the connection once the message it is handling has been answered.
+func (c *Conn) leave() {
+	c.mu.Lock()
+	if c.handling {
+		c.leaving = true
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	_ = c.Close()
+}
+
 func (c *Conn) serve(ctx context.Context) error {
 	if err := c.transport.Handshake(); err != nil {
 		return err
@@ -167,11 +181,25 @@ func (c *Conn) serve(ctx context.Context) error {
 			return fmt.Errorf("esphomedevice: decoding id %d: %w", frame.Type, err)
 		}
 
-		if err := c.dispatch(ctx, msg); err != nil {
+		c.mu.Lock()
+		c.handling = true
+		c.mu.Unlock()
+
+		err = c.dispatch(ctx, msg)
+
+		c.mu.Lock()
+		c.handling = false
+		leaving := c.leaving
+		c.mu.Unlock()
+
+		if err != nil {
 			if errors.Is(err, ErrDisconnect) {
 				return nil
 			}
 			return err
+		}
+		if leaving {
+			return nil
 		}
 	}
 }

@@ -23,6 +23,8 @@ type Room struct {
 	Level func() float64
 
 	Facing func() (float64, bool)
+
+	Beam func() (float64, bool)
 }
 
 type Claim interface {

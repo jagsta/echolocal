@@ -53,9 +53,9 @@ func newInstallCmd() *cobra.Command {
 
 	c := &cobra.Command{
 		Use:   "install",
-		Short: "Install echod on a connected Echo Dot",
-		Long: "Installs echod into /system/app/echod and hands it Amazon's ledcontroller service,\n" +
-			"so init starts and supervises it. Safe to re-run.\n\n" +
+		Short: "Install echod on a connected Echo Dot or Echo Show",
+		Long: "Installs echod into /system/app/echod as an init service, in place of Amazon's\n" +
+			"ledcontroller on the Echo Dot, so init starts and supervises it. Safe to re-run.\n\n" +
 			"Begins by checking that the device has root, without which there is no root adbd and\n" +
 			"nothing below it can run. A device that has it is left alone; one that does not has\n" +
 			"EchoLocal's boot image written from recovery, which needs TWRP as the recovery\n" +
@@ -80,14 +80,16 @@ func newInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if (!state.Ready || reflash) && p.Boot.SHA256 != "" {
-				if cfg.BootImage, cfg.BootImageFrom, err = resolveBootImage(
-					cmd.Context(),
-					out,
-					p,
-					bootImage,
-				); err != nil {
-					return err
+			if (!state.Ready || reflash) && (p.Boot.SHA256 != "" || !p.System.Empty()) {
+				if p.Boot.SHA256 != "" {
+					if cfg.BootImage, cfg.BootImageFrom, err = resolveBootImage(
+						cmd.Context(),
+						out,
+						p,
+						bootImage,
+					); err != nil {
+						return err
+					}
 				}
 				if cfg.Approved, err = approveFlash(
 					cmd.Context(),

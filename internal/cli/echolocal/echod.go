@@ -26,7 +26,10 @@ func resolveEchod(
 	}
 
 	if manifest == "" {
-		manifest = update.Stable.URL()
+		var err error
+		if manifest, err = update.Stable.Manifest(ctx); err != nil {
+			return nil, "", err
+		}
 	}
 	m, err := update.At(ctx, manifest)
 	if err != nil {

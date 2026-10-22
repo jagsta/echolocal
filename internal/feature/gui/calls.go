@@ -10,9 +10,9 @@ import (
 
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/apps"
 	"github.com/ygelfand/echolocal/internal/feature/call"
 	"github.com/ygelfand/echolocal/internal/feature/discovery"
-	"github.com/ygelfand/echolocal/internal/feature/drawer"
 	"github.com/ygelfand/echolocal/internal/feature/shell"
 	"github.com/ygelfand/echolocal/internal/feature/volume"
 )
@@ -27,7 +27,7 @@ func init() {
 			Voice: sharedvolume.For(volume.Get(), config.StreamVoice),
 			Video: component.Board().CameraWidth > 0,
 		})
-		drawer.Get().Add(calls.Rail())
+		apps.Get().Add(calls.App())
 		discovery.Get().Changed.Listen(func(struct{}) { shell.Get().Redraw() })
 		o.Views = append(o.Views, calls.Screen)
 	})

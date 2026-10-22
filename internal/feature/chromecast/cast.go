@@ -77,7 +77,7 @@ func build() *castreceiver.Receiver {
 			Volume: mediaVolume{},
 			Video:  pictures(),
 			Output: func(ended func()) playback.Output {
-				o := newOutput()
+				o := NewOutput()
 				o.SetEnded(ended)
 				return o
 			},
@@ -88,6 +88,7 @@ func build() *castreceiver.Receiver {
 			Preferences: castreceiver.Preferences("echolocal", config.CastSection),
 		},
 	})
+	configureSettings(r)
 	component.Settings.Add(r.Settings())
 	return r
 }

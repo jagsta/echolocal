@@ -1,0 +1,7 @@
+# Fork-only UI text (upstream's catalogue lives in libcountertop/pkg/say).
+diag.group.diagnostics: Diagnostics
+diag.setting.remote_adb: Remote ADB
+intercom.group.intercom: Intercom
+intercom.setting.cert_key: Signalling certificate key
+intercom.setting.cors_origins: Allowed browser origins
+intercom.setting.phone_keys: Phone pairing keys

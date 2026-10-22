@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ygelfand/echolocal/internal/lib/input"
+	"github.com/ygelfand/libcountertop/pkg/input"
 )
 
 func newButtonsCmd() *cobra.Command {
@@ -17,8 +17,8 @@ func newButtonsCmd() *cobra.Command {
 		Use:   "buttons",
 		Short: "Watch the physical buttons and report evdev events",
 		Long: "Reads /dev/input/event* directly. Press each button in turn to learn its code.\n\n" +
-			"The Echo Dot has four top buttons — action, microphone mute, volume up and volume\n" +
-			"down. Whether mute is a real hardware gate on the ADC or only a key event is the\n" +
+			"The Echo Dot has four top buttons: action, microphone mute, volume up and volume\n" +
+			"down. The Echo Shows have microphone mute, volume up and volume down. Whether mute is a real hardware gate on the ADC or only a key event is the\n" +
 			"thing worth establishing: check with `tools mic` while muted.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			devs, err := input.List()

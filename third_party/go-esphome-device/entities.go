@@ -23,6 +23,9 @@ type Entities struct {
 	byAction  map[uint32]*Action
 	broadcast func(proto.Message)
 
+	listeners    map[int]func(State)
+	nextListener int
+
 	// camera answers CameraImageRequest, which carries no key: the protocol has one camera per
 	// device, so there is nothing to look up.
 	camera *Camera
@@ -137,6 +140,7 @@ func (e *Entities) push(msg proto.Message) {
 	if fn != nil {
 		fn(msg)
 	}
+	e.tell(msg)
 }
 
 func (e *Entities) lookup(key uint32) (Entity, bool) {
@@ -267,6 +271,14 @@ func (c *chain) bindServer(s *Server) {
 	for _, h := range c.handlers {
 		if b, ok := h.(serverBinder); ok {
 			b.bindServer(s)
+		}
+	}
+}
+
+func (c *chain) ConnClosed(conn *Conn) {
+	for _, h := range c.handlers {
+		if cc, ok := h.(ConnCloser); ok {
+			cc.ConnClosed(conn)
 		}
 	}
 }

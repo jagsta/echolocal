@@ -16,6 +16,8 @@ const (
 	KeyPath  = StateDir + "/psk"
 	NamePath = StateDir + "/name"
 
+	CrashPath = StateDir + "/crash"
+
 	CastCredentialsPath = StateDir + "/cast-credentials.json"
 	CastBundlePath      = StateDir + "/cast-bundle.json"
 	CastAuthorityPath   = StateDir + "/cast-authority.json"
@@ -93,11 +95,23 @@ const MACPath = "/proc/idme/mac_addr"
 
 const StatePath = StateDir + "/state.json"
 
+const RuntimePath = StateDir + "/runtime.json"
+
 const ModelDir = StateDir + "/models"
+
+const VoiceHelper = StateDir + "/bin/echolocal-voice"
+
+const AirPlayHelper = StateDir + "/bin/echolocal-airplay"
+
+const AirPlayKey = StateDir + "/airplay.pem"
+
+const TileDir = StateDir + "/tiles"
 
 const RecordingDir = StateDir + "/recordings"
 
 const ToneDir = StateDir + "/tones"
+
+const PhotoDir = StateDir + "/photos"
 
 const TempDir = StateDir + "/tmp"
 

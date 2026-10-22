@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ygelfand/echolocal/internal/layout"
+	"github.com/ygelfand/echolocal/internal/lib/asp"
 )
 
 // Biscuit is the 2nd-generation Echo Dot.
@@ -16,7 +17,18 @@ var Biscuit = Board{
 	SignalsBoot:  true,
 	Model:        "Echo Dot 2 (biscuit)",
 	DefaultName:  "Echo Dot",
-	Caps:         Ring | MuteLight | ASP,
+	Caps:         Ring | MuteLight,
+	Tuning: asp.Files{
+		EQ: []asp.Step{
+			{UpTo: 0.5, Name: "EQ_50.cfg"},
+			{UpTo: 0.6, Name: "EQ_60.cfg"},
+			{UpTo: 0.7, Name: "EQ_70.cfg"},
+			{UpTo: 0.8, Name: "EQ_80.cfg"},
+			{UpTo: 0.9, Name: "EQ_90.cfg"},
+			{UpTo: 1.0, Name: "EQ_100.cfg"},
+		},
+		Limiter: "MBCL.cfg",
+	},
 
 	Service:     "/system/bin/ledcontroller",
 	ServiceName: "ledcontroller",

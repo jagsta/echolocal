@@ -3,6 +3,7 @@ package all
 import (
 	_ "github.com/ygelfand/echolocal/internal/android/setup"
 	_ "github.com/ygelfand/echolocal/internal/feature/activity"
+	_ "github.com/ygelfand/echolocal/internal/feature/alarm"
 	_ "github.com/ygelfand/echolocal/internal/feature/api"
 	_ "github.com/ygelfand/echolocal/internal/feature/bluetooth"
 	_ "github.com/ygelfand/echolocal/internal/feature/buttons"

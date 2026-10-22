@@ -19,8 +19,8 @@ func newRoot() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "echolocal",
 		Short: "EchoLocal host CLI",
-		Long: "echolocal installs and manages EchoLocal on an Echo Dot, and provides host-side\n" +
-			"tools for working with captures taken from one.",
+		Long: "echolocal installs and manages EchoLocal on Echo Dots and Echo Shows, and provides\n" +
+			"host-side tools for working with captures taken from them.",
 		SilenceUsage: true,
 		Version:      layout.VersionString(),
 	}

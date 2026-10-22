@@ -11,6 +11,7 @@ import (
 
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/alarm"
 	"github.com/ygelfand/echolocal/internal/feature/media"
 	"github.com/ygelfand/echolocal/internal/feature/timer"
 	"github.com/ygelfand/echolocal/internal/feature/wakeword"
@@ -67,6 +68,7 @@ func build() *Voice {
 				Slots:   wakeword.Slots,
 				Initial: slots,
 				Timers:  timer.Get(),
+				Alarms:  alarm.Get(),
 				Sound:   speaker.Sound(),
 				Player:  media.Get(),
 				Save:    func(slot int, id string) error { return config.Set().Wake(slot).ID(id) },
@@ -111,7 +113,16 @@ func (v *Voice) Start(slot int) {
 	v.Satellite.Start(slot)
 }
 
-func (v *Voice) ActionHold() { v.Start(1) }
+// ActionHold keeps the same pre-turn guard on the button path: upstream now
+// uses satellite.ActionHold(1) directly, so the guard is checked here rather
+// than via the Start override above.
+func (v *Voice) ActionHold() {
+	if blocked() {
+		slog.Debug("wake suppressed: intercom session active")
+		return
+	}
+	v.Satellite.ActionHold(1)
+}
 
 // VS exposes the underlying protocol satellite. The drop-in intercom session
 // layer uses it to hold the perpetual per-call turn (StartTurn/SendAudio/

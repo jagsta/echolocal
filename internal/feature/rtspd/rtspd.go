@@ -1,7 +1,6 @@
 package rtspd
 
 import (
-	"log/slog"
 	"sync"
 
 	esphome "github.com/ygelfand/go-esphome-device"
@@ -20,7 +19,6 @@ import (
 	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/feature/livecam"
 	"github.com/ygelfand/echolocal/internal/feature/vision"
-	"github.com/ygelfand/echolocal/internal/hardware/buttons"
 	"github.com/ygelfand/echolocal/internal/layout"
 )
 
@@ -58,8 +56,8 @@ func Get() *Server {
 			Served:   livecam.Get().Served,
 			FPS:      live.FPS,
 			Bitrate:  livecam.Get().Bitrate,
-			Allowed:  func() bool { return !buttons.Get().Covered() },
 			ONVIF:    describe,
+			Auth:     camerartspd.Credentials(func() schema.RTSP { return config.Get().RTSP }),
 		})}
 		shared.build()
 		livecam.Get().StreamsChanged.Listen(func([]int) { shared.reload() })
@@ -103,20 +101,16 @@ func (s *Server) build() {
 	s.knobs = camerartspd.Controls(
 		component.DeviceCamera,
 		func() schema.RTSP { return config.Get().RTSP },
-		s.enable,
+		s.apply,
 	)
 	component.Settings.Add(s.knobs)
 }
 
-func (s *Server) SetEnabled(on bool) {
-	if err := s.knobs.Change("enabled", setting.OnOff(on)); err != nil {
-		slog.Error("saving a setting failed", "setting", "rtsp.enabled", "err", err)
-	}
-}
+func (s *Server) Settings() *setting.Controls[schema.RTSP] { return s.knobs }
 
-func (s *Server) enable(on bool) error {
-	err := config.Set().RTSP().Enabled(on)
-	if on {
+func (s *Server) apply(at schema.RTSP) error {
+	err := config.Set().RTSP().All(at)
+	if at.Enabled {
 		s.srv.Start()
 	} else {
 		s.srv.Stop()

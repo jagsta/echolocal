@@ -13,11 +13,16 @@ var (
 	AlertsSection    = sections.Alerts
 	FeedbackSection  = sections.Feedback
 	APISection       = sections.API
+	AppsSection      = sections.Apps
 	NetworkSection   = sections.Network
 	CallSection      = sections.Call
 	CastSection      = sections.Cast
 	HomeSection      = sections.Home
 	PosterSection    = sections.Poster
+	PhotosSection    = sections.Photos
+	CamerasSection   = sections.Cameras
+	CertsSection     = sections.Certs
+	FrontendSection  = sections.Frontend
 	SendspinSection  = sections.Sendspin
 	BluetoothSection = sections.Bluetooth
 	MediaSection     = sections.Media
@@ -27,6 +32,11 @@ var (
 	IdleSection      = sections.Idle
 	VisualSection    = sections.Visual
 	WeatherSection   = sections.Weather
+	TodoSection      = sections.Todo
+	CalendarSection  = sections.Calendar
+	RadioSection     = sections.Radio
+	VoiceSection     = sections.Voice
+	AirPlaySection   = sections.AirPlay
 
 	LiftSection = storage.Bind(
 		func() *storage.Store[Config] { return store().Store },

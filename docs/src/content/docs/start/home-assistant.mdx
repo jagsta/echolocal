@@ -1,0 +1,69 @@
+---
+title: Add it to Home Assistant
+description: Add the Echo through the ESPHome integration.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import discovery from '../../../assets/screens/echolocal_discovery.png';
+import add from '../../../assets/screens/echolocal_discovery_add.png';
+
+EchoLocal speaks the ESPHome native API, so Home Assistant finds it the way it finds any ESPHome
+device.
+
+## Add it
+
+<Steps>
+
+1. In Home Assistant, open **Settings → Devices & services**. The Echo shows up as a discovered
+   ESPHome device.
+
+   <Image src={discovery} alt="Home Assistant discovering the Echo as an ESPHome device" class="screen" />
+
+2. **Add** it, and confirm. No password or key; the Echo and Home Assistant set up the encryption
+   key themselves.
+
+   <Image src={add} alt="The confirmation dialog for adding the discovered device" class="screen" />
+
+3. Open the ESPHome integration's options for the device and turn on **Allow the device to perform
+   Home Assistant actions**. The Echo Shows need it for Tessera, home control and picking wake words
+   on the screen.
+
+</Steps>
+
+<Aside type="tip">
+If it isn't discovered, add it by hand: **Add integration → ESPHome**, with the Echo's IP address and
+port `6053`.
+</Aside>
+
+## In Home Assistant
+
+The Echo is one device, with its entities split into sub-devices named after it. Anything not
+listed here, such as the media player, network, Bluetooth, buttons and updates, sits on the main
+device.
+
+| Sub-device | Contents |
+|---|---|
+| **ring** | The light ring and its effects, room reaction, ring while muted, intercom ring |
+| **microphone** | Mute, gain, leveling, echo cancellation, sensitivity, diagnostics |
+| **voice triggers** | Which [voice actions and commands](/features/voice/#voice-triggers) are on |
+| **playback** | Now playing, alert sounds, volumes, AirPlay, Sendspin, Chromecast |
+| **screen** | Brightness, theme, dashboard, screen saver, visuals, weather, wallpaper, photos (Echo Show) |
+| **dashboard** | Tessera (Echo Show) |
+| **camera** | Snapshot camera, RTSP, picture settings, vision (Echo Show) |
+| **assistant 1**, **assistant 2** | Wake word, pipeline, sensitivity, sounds, timing, recording |
+
+Every entity is listed on [Settings in Home Assistant](/use/entities/) and
+[Settings on the screen](/use/settings/).
+
+## Encryption key
+
+If you installed with `./echolocal install --generate-key`, Home Assistant asks for a key. Get it
+with:
+
+```sh
+./echolocal key show
+```
+
+Next: the optional [EchoLocal integration](/start/integration/), which adds a dashboard and a card
+for every Echo.

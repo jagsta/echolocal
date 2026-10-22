@@ -17,6 +17,10 @@ func needs() []sharedcomponent.Option { return nil }
 
 func wants(g setting.Group) bool { return g != castreceiver.PrimeGroup }
 
+func configureSettings(r *castreceiver.Receiver) {
+	r.Settings().Table = r.Settings().Table.Without("youtube.livedelay", "youtube.skip")
+}
+
 func apps() []cast.Maker { return []cast.Maker{unsupported.Maker, youtube.Maker(nil)} }
 
 func pictures() func() playback.Target { return nil }

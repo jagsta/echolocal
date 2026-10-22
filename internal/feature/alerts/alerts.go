@@ -20,10 +20,11 @@ var get = sync.OnceValue(func() *shared.Alerts {
 		config.AlertsSection,
 		component.DevicePlayback,
 		tones.Get(),
-		func(s tone.Sound) {
-			speaker.Sound().Sound(config.StreamAlerts, shared.Level, s)
+		func(s tone.Sound, level float64) {
+			speaker.Sound().Sound(config.StreamAlerts, level, s)
 		},
 	)
+	configure(a)
 	component.Settings.Add(a.Controls)
 	tones.Get().Changed.Listen(func(struct{}) { a.Refresh() })
 	return a

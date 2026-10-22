@@ -100,7 +100,7 @@ func cmagf(c complex64) float64 {
 }
 
 func TestFullBandLimiterHoldsCeiling(t *testing.T) {
-	tuning := &Tuning{taps: unitTaps(), mbcl: testMBCL()}
+	tuning := stepped(unitTaps())
 	c, err := tuning.Chain(512)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestFullBandLimiterHoldsCeiling(t *testing.T) {
 		for i := range x {
 			x[i] = float32(r.NormFloat64()) * 8
 		}
-		c.Process(x)
+		c.Process(x, 1)
 		for i, v := range x {
 			if math.Abs(float64(v)) > ceil+1e-6 {
 				t.Fatalf("sample %d left the chain at %g, ceiling is %g", i, v, ceil)
@@ -124,7 +124,7 @@ func TestFullBandLimiterHoldsCeiling(t *testing.T) {
 
 // The vendor tuning compresses the band below 115 Hz 20:1 from -50 dB.
 func TestLowBandIsHeldDown(t *testing.T) {
-	tuning := &Tuning{taps: unitTaps(), mbcl: testMBCL()}
+	tuning := stepped(unitTaps())
 	c, err := tuning.Chain(512)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestLowBandIsHeldDown(t *testing.T) {
 			n := float64(b*512 + i)
 			x[i] = float32(0.9 * math.Sin(2*math.Pi*40*n/Rate))
 		}
-		c.Process(x)
+		c.Process(x, 1)
 		if b < 30 {
 			continue
 		}
@@ -183,7 +183,7 @@ func vendorTuning(t *testing.T) *Tuning {
 		t.Skip("set ECHOLOCAL_VENDOR_DIR to a copy of /vendor/etc/audio-algorithms")
 	}
 
-	v, err := Load(dir)
+	v, err := Load(dir, dotFiles)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestVendorFilterHasTheShapeWeMeasured(t *testing.T) {
 
 	const n = 8192
 	spec := make([]complex64, n)
-	for i, c := range v.taps {
+	for i, c := range v.taps[0] {
 		spec[i] = complex(c, 0)
 	}
 	fft.New(n).Forward(spec)
@@ -254,15 +254,147 @@ func TestVendorMBCLIsTheOneWeBuiltFor(t *testing.T) {
 func TestLoadRejectsAWrongLengthFilter(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(
-		filepath.Join(dir, eqFiles[0].name),
+		filepath.Join(dir, dotFiles.EQ[0].Name),
 		[]byte("1.0,\n2.0,\n"),
 		0o600,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(dir); err == nil {
+	if _, err := Load(dir, dotFiles); err == nil {
 		t.Fatal("a two-tap filter loaded as if it were the tuning")
 	}
+}
+
+func TestNothingListedLoadsNothing(t *testing.T) {
+	if _, err := Load(t.TempDir(), Files{}); err == nil {
+		t.Fatal("a board without tuning files loaded a tuning")
+	}
+}
+
+func TestEachVolumeUsesItsOwnFilter(t *testing.T) {
+	tuning := stepped([]float32{1}, []float32{0.5}, []float32{0.25})
+	for _, c := range []struct {
+		share float64
+		want  int
+	}{
+		{0, 0}, {0.3, 0}, {0.31, 1}, {0.6, 1}, {0.61, 2}, {1, 2}, {1.5, 2},
+	} {
+		if got := tuning.step(c.share); got != c.want {
+			t.Errorf("volume %.2f uses filter %d, want %d", c.share, got, c.want)
+		}
+	}
+}
+
+func TestAStepChangeCrossfadesWithoutAJump(t *testing.T) {
+	const block = 64
+	c, err := stepped([]float32{1}, []float32{0.5}, []float32{0.25}).Chain(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(share float64) []float32 {
+		x := make([]float32, block)
+		for i := range x {
+			x[i] = 0.1
+		}
+		c.filter(x, share)
+		return x
+	}
+	run(0.1)
+	before := run(0.1)
+	during := run(0.5)
+	after := run(0.5)
+
+	if math.Abs(float64(during[0]-before[block-1])) > 0.1*0.5/block+1e-6 {
+		t.Errorf(
+			"the first sample after the change jumped from %g to %g",
+			before[block-1],
+			during[0],
+		)
+	}
+	if math.Abs(float64(during[block-1]-after[0])) > 1e-6 {
+		t.Errorf("the crossfade ends at %g, the new filter plays %g", during[block-1], after[0])
+	}
+	if math.Abs(float64(after[0])-0.05) > 1e-6 {
+		t.Errorf("after the change the filter plays %g, want the second step's 0.05", after[0])
+	}
+}
+
+func TestTheNewFilterHearsThePast(t *testing.T) {
+	const block = 32
+	echo := make([]float32, 40)
+	echo[36] = 1
+	c, err := stepped(echo, echo).Chain(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	x := make([]float32, block)
+	x[0] = 1
+	c.filter(x, 0.1)
+	quiet := make([]float32, block)
+	c.filter(quiet, 1)
+	if math.Abs(float64(quiet[4])-1) > 1e-3 {
+		t.Errorf("an impulse from before the change came out at %g, want 1", quiet[4])
+	}
+}
+
+func TestInputGainsFollowTheVendorDefinitions(t *testing.T) {
+	m := testMBCL()
+	m.InVol = 6
+	for i := range m.Bands {
+		m.Bands[i] = mbclBand{CompRatio: 1, CompGainMin: -40, LimThresh: 0, LimRelease: 1}
+	}
+	m.Full = mbclLimit{LimThresh: 0, LimRelease: 1}
+	s, err := newMBCL("test", m, Rate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := s.in, float32(math.Pow(10, 6.0/20)); math.Abs(float64(got-want)) > 1e-6 {
+		t.Errorf("inVol 6 dB is a gain of %g, want %g", got, want)
+	}
+
+	m.Bands[0].CompInVol, m.Bands[1].LimInVol = 6, -6
+	s, err = newMBCL("test", m, Rate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.bands[0].compIn < 1.99 || s.bands[1].limIn > 0.51 {
+		t.Errorf("band input gains are %g and %g", s.bands[0].compIn, s.bands[1].limIn)
+	}
+}
+
+func TestARatioBelowOneDoesNotCompress(t *testing.T) {
+	m := testMBCL()
+	m.Bands[2].CompRatio, m.Bands[2].CompThresh = 0, 0
+	s, err := newMBCL("test", m, Rate)
+	if err != nil {
+		t.Fatalf("a ratio of 0 was refused: %v", err)
+	}
+	if s.bands[2].compRatio != 1 {
+		t.Errorf("a ratio of 0 compresses at %g:1", s.bands[2].compRatio)
+	}
+}
+
+var dotFiles = Files{
+	EQ: []Step{
+		{UpTo: 0.5, Name: "EQ_50.cfg"},
+		{UpTo: 0.6, Name: "EQ_60.cfg"},
+		{UpTo: 0.7, Name: "EQ_70.cfg"},
+		{UpTo: 0.8, Name: "EQ_80.cfg"},
+		{UpTo: 0.9, Name: "EQ_90.cfg"},
+		{UpTo: 1.0, Name: "EQ_100.cfg"},
+	},
+	Limiter: "MBCL.cfg",
+}
+
+func stepped(filters ...[]float32) *Tuning {
+	t := &Tuning{mbcl: testMBCL(), files: Files{Limiter: "test"}}
+	for i, h := range filters {
+		t.files.EQ = append(t.files.EQ, Step{UpTo: 0.3 * float64(i+1)})
+		t.taps = append(t.taps, h)
+	}
+	return t
 }
 
 func TestStripComments(t *testing.T) {

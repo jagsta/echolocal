@@ -87,6 +87,8 @@ func devices(name string) []esphome.Device {
 		{ID: component.DeviceScreen, Name: name + " screen"},
 		{ID: component.DeviceCamera, Name: name + " camera"},
 		{ID: component.DeviceDashboard, Name: name + " dashboard"},
+		{ID: component.DeviceVoice, Name: name + " voice triggers"},
+		{ID: component.DeviceFrontend, Name: name + " frontend"},
 	}
 	for slot := range wakeword.Slots {
 		all = append(all, esphome.Device{

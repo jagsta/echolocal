@@ -5,13 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-
-	"github.com/ygelfand/echolocal/internal/host/bootimg"
 )
-
-func Partition(slot string) string { return "system" + slot }
-
-func Node(slot string) string { return bootimg.ByName + Partition(slot) }
 
 // A modified system boots only with both the fstab verify flag and the verity metadata gone.
 const VerityOffset = 798945280
@@ -49,6 +43,24 @@ var (
 		SHA256: "43d9039682c9af8c9f3b59eceb6e1baaf03abb5d575123df071f6d3f5961d881",
 		Size:   1470,
 	}
+	AthenaFOSFlags = Patch{
+		File:   "athena/init.fosflags.sh",
+		Path:   "init.fosflags.sh",
+		SHA256: "074f8fe778b3d651d8f90d2f5d338f98ef44d1662e31b0d08f2d525c62f4ecad",
+		Size:   5114,
+	}
+	AthenaCameraServer = Patch{
+		File:   "athena/cameraserver.rc",
+		Path:   "system/etc/init/cameraserver.rc",
+		SHA256: "8b057791062d3b52ac90c9a6c59f5adc5d4844b8e92302aebe81e621913c4b08",
+		Size:   351,
+	}
+	AthenaConnectivity = Patch{
+		File:   "athena/init.connectivity.rc",
+		Path:   "vendor/etc/init/hw/init.connectivity.rc",
+		SHA256: "2961e3dc4a511e5d0fb468c174beaba79cc76077c603c3e4e76560f942c7665f",
+		Size:   1320,
+	}
 )
 
 // movs r0, #1; bx lr
@@ -70,7 +82,7 @@ func (p Patch) Verify(data []byte) error {
 	return nil
 }
 
-func Verity(magic []byte) (disabled bool, err error) {
+func Verity(magic []byte, at int64) (disabled bool, err error) {
 	switch hex.EncodeToString(magic) {
 	case DisabledMagic:
 		return true, nil
@@ -79,7 +91,7 @@ func Verity(magic []byte) (disabled bool, err error) {
 	}
 	return false, fmt.Errorf(
 		"sysimg: no verity metadata at %d, found %x",
-		VerityOffset,
+		at,
 		bytes.TrimRight(magic, "\x00"),
 	)
 }

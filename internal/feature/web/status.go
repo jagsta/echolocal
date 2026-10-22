@@ -1,7 +1,7 @@
 package web
 
 import (
-	"github.com/ygelfand/libcountertop/pkg/runtime/status"
+	"github.com/ygelfand/echolocal/internal/status"
 	"github.com/ygelfand/libcountertop/pkg/system/metrics"
 
 	"github.com/ygelfand/echolocal/internal/component"

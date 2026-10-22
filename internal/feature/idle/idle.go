@@ -12,6 +12,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/brightness"
 	"github.com/ygelfand/echolocal/internal/feature/drawer"
 	"github.com/ygelfand/echolocal/internal/feature/shell"
 	"github.com/ygelfand/echolocal/internal/feature/timesync"
@@ -55,7 +56,9 @@ func Get() *Idle {
 				return display.Get().Uncovered(panel.PriorityDashboard) &&
 					web.Get().Offering() == ""
 			},
+			Ambient: brightness.Get().Ambient,
 		})}
+		shared.Night.Listen(brightness.Get().Night)
 		component.Settings.Add(shared.Settings())
 		drawer.Get().Add(shared.Rail())
 	})

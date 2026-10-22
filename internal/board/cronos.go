@@ -14,6 +14,9 @@ var Cronos = Board{
 	UISize:        "mini",
 	Diagonal:      5.5,
 	Tessera:       Tessera{Board: "sunton8048s070", Columns: 4, Rows: 2},
+	DecodeWidth:   1920,
+	DecodeHeight:  1088,
+	Tuning:        Show5Tuning,
 	SecureDecoders: map[string]string{
 		"video/avc":  "OMX.MTK.VIDEO.DECODER.AVC.secure",
 		"video/hevc": "OMX.MTK.VIDEO.DECODER.HEVC.secure",
@@ -23,6 +26,7 @@ var Cronos = Board{
 	MuteDir: "/sys/devices/platform/gpio-privacy",
 
 	CameraWidth: 1280, CameraHeight: 720,
+	CameraSizes: []string{"1280x960", "1280x720", "864x480", "640x480"},
 
 	Service:     layout.Binary,
 	ServiceName: layout.Service,

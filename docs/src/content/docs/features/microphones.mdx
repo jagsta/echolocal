@@ -1,0 +1,45 @@
+---
+title: Microphones
+description: What each microphone setting does and how to tune for your room.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The microphone settings are only in Home Assistant, on the device's **microphone** sub-device and in the card's Microphone panel. They stay on
+the device: [config sync](/use/configuration/#config-sync) doesn't copy them.
+
+| Setting | Entity | What it does | Range | Default |
+|---|---|---|---|---|
+| **Microphone mixing** | `select.<device>_microphone_microphone_mixing` | How the microphones are combined. **Center mic** uses one; on the Echo Dot's seven-microphone array, **Delay and sum**, and **Beamformer** where the Echo's own beamformer tuning is present, aim at whoever is speaking | Center mic, Delay and sum, Beamformer | Center mic |
+| **Microphone gain** | `number.<device>_microphone_microphone_gain` | Amplification before anything else | 0–59 dB | 20 dB |
+| **Microphone leveling** | `switch.<device>_microphone_microphone_leveling` | Keeps your voice at a steady level whether you're near or across the room | On, Off | On |
+| **Microphone echo cancellation** | `switch.<device>_microphone_microphone_echo_cancellation` | Removes what the speaker is playing from what the microphones hear, so the wake word works while music plays | On, Off | On |
+| **Room sensitivity** | `number.<device>_microphone_room_sensitivity` | How much louder than the room's background noise a sound has to be before the ring or the listening visual reacts | 4–20 dB | 8 dB |
+| **Mute sound** | `select.<device>_microphone_mute_sound` | The sound when the mute button is pressed | Chimes, Mute tones, custom tones | Mute tones |
+
+The Echo Shows offer only **Center mic** mixing.
+
+The room's sound level and noise floor are sensors (`room_level`, `room_floor`), which help when
+tuning.
+
+## Tuning
+
+- **The wake word misses you from across the room.** Make the wake word easier to trigger first:
+  lower **Wake word sensitivity** in Home Assistant, or raise its slider on the screen; then raise **Microphone gain** a few dB at a time. Keep **Microphone
+  leveling** on.
+- **It wakes on its own, or on the TV.** Make the wake word harder to trigger: raise **Wake word sensitivity** in Home Assistant, or lower
+  its slider on the screen. Keep **Microphone echo cancellation** on so the device doesn't hear its own music.
+- **It cuts you off, or keeps listening too long.** Adjust **Max listening time**, and **Room
+  sensitivity** if the room is loud.
+- **Voices sound distorted in the recordings.** Lower **Microphone gain**.
+
+## What the visuals hear
+
+The screen saver's visuals listen to the same microphone signal, after echo cancellation, so music
+from the speaker barely moves them while your voice does. **Visualizer lift** (`visualizer_lift`,
+0–40 dB) adds gain for the visuals only, without changing what the wake word hears.
+
+<Aside>
+Muting with the button cuts the microphones in hardware. When they come back, the first moments can
+make the visuals jump; that's the microphones powering up, not sound in the room.
+</Aside>

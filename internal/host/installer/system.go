@@ -97,12 +97,12 @@ const (
 
 	// Amazon's shipped policy refuses init that write.
 	initDomain = "init"
-
-	policyPath = "/sepolicy"
 )
 
 func (r *run) permissiveAtBoot(at string) (string, error) {
-	policy, err := r.d.ReadFile(at + policyPath)
+	path := at + "/" + r.system().Policy
+
+	policy, err := r.d.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +112,7 @@ func (r *run) permissiveAtBoot(at string) (string, error) {
 		return "", fmt.Errorf("marking %s permissive: %w", initDomain, err)
 	}
 	if !bytes.Equal(policy, patched) {
-		if err := r.writeInPlace(at+policyPath, patched); err != nil {
+		if err := r.writeInPlace(path, patched); err != nil {
 			return "", err
 		}
 	}
@@ -160,40 +160,58 @@ func disableVerity(r *run) (string, bool, error) {
 	if detail, skip := r.done(); skip {
 		return detail, true, nil
 	}
-	if r.system().VerityOffset == 0 {
+	parts := r.system().Partitions
+	if len(parts) == 0 {
 		return "no verity metadata on this board", true, nil
 	}
 
-	dev, err := r.systemNode()
-	if err != nil {
-		return "", false, err
+	var disabled []string
+	for _, p := range parts {
+		did, err := r.disableVerityOn(p)
+		if err != nil {
+			return "", false, fmt.Errorf("%s: %w", p.Name, err)
+		}
+		if did {
+			disabled = append(disabled, p.Name)
+		}
 	}
-	at := r.system().VerityOffset
+	if len(disabled) == 0 {
+		return "already disabled", true, nil
+	}
+	return "disabled on " + strings.Join(disabled, ", "), false, nil
+}
+
+func (r *run) disableVerityOn(p sysimg.Partition) (bool, error) {
+	dev, err := r.node(p)
+	if err != nil {
+		return false, err
+	}
+	at := p.VerityOffset
 
 	magic, err := r.peek(dev, at, len(sysimg.DisabledBytes))
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 
-	off, err := sysimg.Verity(magic)
+	off, err := sysimg.Verity(magic, at)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	if off {
-		return "already disabled", true, nil
+		return false, nil
 	}
 
 	if err := r.poke(dev, at, sysimg.DisabledBytes); err != nil {
-		return "", false, err
+		return false, err
 	}
 
 	if magic, err = r.peek(dev, at, len(sysimg.DisabledBytes)); err != nil {
-		return "", false, err
+		return false, err
 	}
-	if off, err := sysimg.Verity(magic); err != nil || !off {
-		return "", false, fmt.Errorf("verity metadata reads %x after the write", magic)
+	if off, err := sysimg.Verity(magic, at); err != nil || !off {
+		return false, fmt.Errorf("verity metadata reads %x after the write", magic)
 	}
-	return "disabled", false, nil
+	return true, nil
 }
 
 func patchSystem(r *run) (string, bool, error) {
@@ -215,6 +233,25 @@ func patchSystem(r *run) (string, bool, error) {
 	}()
 
 	layout := r.system()
+
+	var mounted []string
+	defer func() {
+		for _, dir := range slices.Backward(mounted) {
+			if _, err := r.d.Shell("sync; umount " + dir); err != nil {
+				slog.Error("unmounting a partition failed", "at", dir, "err", err)
+			}
+		}
+	}()
+	for _, p := range layout.Partitions {
+		if p.Mount == "" {
+			continue
+		}
+		dir, err := r.mountUnder(at, p)
+		if err != nil {
+			return "", false, err
+		}
+		mounted = append(mounted, dir)
+	}
 
 	written := make([]string, 0, len(layout.Patches)+3)
 	for _, p := range layout.Patches {
@@ -472,11 +509,23 @@ func setProp(file []byte, key, value string) []byte {
 	return []byte(strings.TrimRight(string(file), "\n") + "\n" + line + "\n")
 }
 
-func (r *run) systemNode() (string, error) {
+func (r *run) node(p sysimg.Partition) (string, error) {
 	if r.board().Slotted && r.state.slot == "" {
 		return "", errUnknownSlot
 	}
-	return sysimg.Node(r.state.slot), nil
+	return p.Node(r.state.slot), nil
+}
+
+func (r *run) mountUnder(at string, p sysimg.Partition) (string, error) {
+	dev, err := r.node(p)
+	if err != nil {
+		return "", err
+	}
+	dir := at + "/" + p.Mount
+	if _, err := r.d.Shell(fmt.Sprintf("mount -t ext4 -o rw %s %s", dev, dir)); err != nil {
+		return "", fmt.Errorf("mounting %s at %s: %w", dev, dir, err)
+	}
+	return dir, nil
 }
 
 func (r *run) setProps(at string, layout sysimg.Layout) (string, error) {

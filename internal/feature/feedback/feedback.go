@@ -12,6 +12,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/feature/tones"
 	"github.com/ygelfand/echolocal/internal/hardware/indicate"
 	"github.com/ygelfand/echolocal/internal/hardware/led"
 	"github.com/ygelfand/echolocal/internal/hardware/speaker"
@@ -42,6 +43,7 @@ func Get() *Feedback {
 				config.FeedbackSection,
 				speaker.Sound(),
 				component.DevicePlayback,
+				sharedtone.FeedbackOptions{Sounds: tones.Get(), Hold: true},
 			),
 			failure: &esphome.Select{
 				Base: esphome.Base{
@@ -53,6 +55,8 @@ func Get() *Feedback {
 				},
 			},
 		}
+		component.Settings.Add(shared.Controls)
+		tones.Get().Changed.Listen(func(struct{}) { shared.Refresh() })
 		component.BindEffect(shared.failure, led.EffectNames(), nil, config.Set().Ring().Trouble)
 	})
 	return shared
@@ -73,7 +77,7 @@ func (f *Feedback) Restore(c config.Config) {
 }
 
 func Failure() {
-	Get().Sound(sharedtone.ToneTrouble)
+	Get().Failure()
 
 	name := config.Get().Ring.Trouble
 	if name == "" {
@@ -82,6 +86,6 @@ func Failure() {
 	indicate.Get().Claim(indicate.PriorityTrouble).ShowFor(name, failureColor, failureFlash)
 }
 
-func Cancelled() { Get().Sound(sharedtone.ToneCancel) }
+func Cancelled() { Get().Cancelled() }
 
 func Preview(s config.Stream) { Get().Preview(s) }

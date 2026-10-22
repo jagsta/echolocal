@@ -334,6 +334,49 @@ func TestVoiceUnsubscribeStopsTurns(t *testing.T) {
 
 // A satellite cannot serve a wake word until Home Assistant has subscribed, so the transition is
 // reported rather than left to be polled.
+func TestTheFirstSubscriberKeepsTheVoiceAssistant(t *testing.T) {
+	v := &VoiceSatellite{}
+	first := subscribedSatellite(t, v)
+
+	second := first.another()
+	second.hello()
+	second.send(&api.SubscribeVoiceAssistantRequest{Subscribe: true})
+	second.send(&api.PingRequest{})
+	second.recv()
+
+	if err := v.StartTurn("hey jarvis", nil); err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	if _, ok := first.recv().(*api.VoiceAssistantRequest); !ok {
+		t.Error("the turn did not go to the first subscriber")
+	}
+}
+
+func TestAClosedConnectionReleasesTheVoiceAssistant(t *testing.T) {
+	v := &VoiceSatellite{}
+	got := make(chan bool, 4)
+	v.OnSubscribed = func(subscribed bool) { got <- subscribed }
+	first := subscribedSatellite(t, v)
+	<-got
+
+	_ = first.conn.Close()
+	select {
+	case subscribed := <-got:
+		if subscribed {
+			t.Fatal("closing reported a subscribe")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("closing the subscriber's connection did not release the voice assistant")
+	}
+
+	second := first.another()
+	second.hello()
+	second.send(&api.SubscribeVoiceAssistantRequest{Subscribe: true})
+	if !<-got {
+		t.Error("a new client could not take the released voice assistant")
+	}
+}
+
 func TestSubscribedFiresOnChange(t *testing.T) {
 	v := &VoiceSatellite{}
 	got := make(chan bool, 4)

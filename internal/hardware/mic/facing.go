@@ -13,8 +13,11 @@ func (s *Source) Facing() (float64, bool) {
 		return 0, false
 	}
 
-	deg := float64(beam)*(360.0/Beams) - ringOffset
-	return math.Mod(math.Mod(deg/360, 1)+1, 1), true
+	return ringTurn(float64(beam) * (360.0 / Beams)), true
+}
+
+func ringTurn(deg float64) float64 {
+	return math.Mod(math.Mod((deg-ringOffset)/360, 1)+1, 1)
 }
 
 func (s *Source) findFacing(mics [][]int16) {

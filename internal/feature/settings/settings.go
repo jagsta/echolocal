@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sync"
 
-	gogui "github.com/go-gui-org/go-gui/gui"
-
 	shareddrawer "github.com/ygelfand/libcountertop/pkg/display/drawer"
 	sharedshell "github.com/ygelfand/libcountertop/pkg/display/shell"
 	sharedcomponent "github.com/ygelfand/libcountertop/pkg/runtime/component"
@@ -17,6 +15,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
 	"github.com/ygelfand/echolocal/internal/feature/drawer"
+	"github.com/ygelfand/echolocal/internal/feature/lock"
 	"github.com/ygelfand/echolocal/internal/feature/shell"
 )
 
@@ -45,8 +44,8 @@ func Get() *Settings {
 		drawer.Get().Add(shareddrawer.Entry{
 			Name:  func() string { return say.T("settings.title") },
 			Order: shareddrawer.OrderSettings,
-			Glyph: func() string { return gogui.IconGear },
-			Open:  Open,
+			Icon:  "mdi:cog",
+			Open:  func() { lock.Get().Gate().Open(Open) },
 		})
 	})
 	return shared

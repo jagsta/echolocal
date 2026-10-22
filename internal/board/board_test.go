@@ -56,6 +56,7 @@ func TestOnlyBoardsWithADeviceCanMatch(t *testing.T) {
 		"checkers": "checkers",
 		"cronos":   "cronos",
 		"crown":    "crown",
+		"athena":   "athena",
 		"rook":     "rook",
 	}
 
@@ -97,7 +98,7 @@ func TestUnsupportedBoardsClaimNothing(t *testing.T) {
 	}
 	supported := map[string]bool{
 		Biscuit.Device: true, Checkers.Device: true, Cronos.Device: true,
-		Crown.Device: true, Rook.Device: true,
+		Crown.Device: true, Athena.Device: true, Rook.Device: true,
 	}
 
 	for _, b := range All {

@@ -1,3 +1,5 @@
+//go:build !board_athena
+
 package mic
 
 import (
@@ -5,8 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/ygelfand/libcountertop/pkg/audio/alsa"
-
-	"github.com/ygelfand/echolocal/internal/config"
 )
 
 const (
@@ -57,14 +57,4 @@ func applyGain(db int) {
 		}
 	}
 	slog.Info("microphone gain", "db", db)
-}
-
-func SetGain(db int) error {
-	if err := config.Set().Microphone().Gain(db); err != nil {
-		return err
-	}
-	applyGain(db)
-
-	Get().SetInputGain(db)
-	return nil
 }

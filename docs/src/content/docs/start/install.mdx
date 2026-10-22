@@ -1,0 +1,104 @@
+---
+title: Install EchoLocal
+description: Put EchoLocal on your Echo with one command.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import install from '../../../assets/screens/install.gif';
+
+`echolocal` installs EchoLocal on the Echo over USB and connects it to your Wi‑Fi.
+
+## Get echolocal
+
+Download `echolocal` for your computer from the
+[latest release](https://github.com/ygelfand/echolocal/releases/latest). It's a single file. During
+install it downloads the EchoLocal build and boot image for your Echo, so the computer needs internet
+access.
+
+<Tabs>
+	<TabItem label="macOS">
+		```sh
+		cd ~/Downloads
+		mv echolocal_darwin_arm64 echolocal
+		chmod +x echolocal
+		xattr -d com.apple.quarantine echolocal
+		```
+		On an Intel Mac, the file is `echolocal_darwin_x86_64`.
+	</TabItem>
+	<TabItem label="Linux">
+		```sh
+		cd ~/Downloads
+		mv echolocal_linux_x86_64 echolocal
+		chmod +x echolocal
+		```
+		On ARM, such as a Raspberry Pi, the file is `echolocal_linux_arm64`.
+	</TabItem>
+	<TabItem label="Windows">
+		In PowerShell:
+		```powershell
+		cd ~\Downloads
+		Rename-Item echolocal_windows_x86_64.exe echolocal.exe
+		```
+		On an ARM PC, the file is `echolocal_windows_arm64.exe`. Use `.\echolocal.exe` wherever this
+		guide says `./echolocal`.
+	</TabItem>
+</Tabs>
+
+## Install
+
+Plug the Echo in over USB and run:
+
+```sh
+./echolocal install --name kitchen
+```
+
+The installer detects the device, flashes its boot image, installs EchoLocal, and asks for your
+Wi‑Fi if the Echo isn't on a network yet. The Echo reboots along the way; leave the cable in until
+it finishes.
+
+<Image src={install} alt="echolocal install, from flashing the boot image to the device coming back on Wi‑Fi" class="screen-wide" />
+
+The name is what Home Assistant calls the device. Renaming it later makes Home Assistant see a new
+device, so pick a name you'll keep.
+
+<Aside type="tip" title="More than one Echo">
+`./echolocal install --name bedroom --ssid MyWiFi --password 'your-password' --yes --reboot`
+</Aside>
+
+## Options
+
+| Option | What it does |
+|---|---|
+| `--name kitchen` | Name the device without being asked |
+| `--ssid MyWiFi --password …` | Join this network without scanning |
+| `--wps` | Join by pressing your router's WPS button |
+| `--yes` | Don't ask before flashing the boot image |
+| `--reboot`, `--no-reboot` | Reboot at the end without asking, or finish without rebooting |
+| `--serial G0XXXXXXXX` | Pick an Echo when more than one is plugged in |
+| `--generate-key` | Make the encryption key here, to paste into Home Assistant, instead of letting Home Assistant set it |
+| `--reflash` | Flash the boot image again even if it's already there |
+
+## Other commands
+
+| Command | What it does |
+|---|---|
+| `./echolocal wifi` | Change Wi‑Fi networks ([below](#changing-wifi-later)) |
+| `./echolocal status` | What's installed and whether it's running |
+| `./echolocal restart` | Restart EchoLocal |
+| `./echolocal board` | Which Echo this is |
+| `./echolocal key show` | Print the Home Assistant encryption key |
+| `./echolocal key rotate` | Make a new key and restart |
+
+## Changing Wi‑Fi later
+
+```sh
+./echolocal wifi --force
+```
+
+`--force` lists the networks even when the Echo is already connected; without it, a connected Echo
+just reports where it is. It takes the same `--ssid`, `--password`, `--wps` and `--serial` options.
+Once the new network connects, the Echo forgets every other network; if it does not connect, the
+Echo goes back to the one it was on.
+
+Next: [add it to Home Assistant](/start/home-assistant/).

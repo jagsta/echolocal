@@ -12,6 +12,10 @@ import (
 
 const noiseIndicator = 0x01
 
+// maxNoisePayload is the largest message payload one Noise frame can carry. The frame length is
+// 16 bits, and the sealed body is the 4-byte type and length header, the payload and a 16-byte tag.
+const maxNoisePayload = 0xffff - 4 - 16
+
 // Handshake packet bodies are prefixed with one byte: 0x00 for a handshake
 // message, 0x01 for a plaintext error string.
 const (
@@ -172,6 +176,12 @@ func (n *Noise) Write(f Frame) error {
 	if n.enc == nil {
 		return ErrNotReady
 	}
+	// A larger message would go out with both lengths wrapped, and the client would read the wrong
+	// number of bytes and fail to decrypt everything after. Checked before Encrypt, so the nonce is
+	// not used up and the connection stays in sync.
+	if len(f.Data) > maxNoisePayload {
+		return fmt.Errorf("%w: %d bytes, at most %d", ErrFrameTooLarge, len(f.Data), maxNoisePayload)
+	}
 
 	header := make([]byte, 4)
 	putBE16(header[0:2], f.Type)
@@ -216,6 +226,9 @@ func (n *Noise) writePacket(parts ...[]byte) error {
 	total := 0
 	for _, p := range parts {
 		total += len(p)
+	}
+	if total > 0xffff {
+		return fmt.Errorf("%w: %d bytes", ErrFrameTooLarge, total)
 	}
 
 	out := make([]byte, 0, 3+total)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/hardware/buttons"
 )
@@ -31,6 +32,18 @@ func Microphone() (Mute, error) {
 		return driver{}, nil
 	}
 	return exported()
+}
+
+func CutsCamera() bool {
+	if !component.Board().Has(board.MicMutesCamera) {
+		return false
+	}
+	m, err := Microphone()
+	if err != nil {
+		return false
+	}
+	cut, err := m.Get()
+	return err == nil && cut
 }
 
 func Light() (LED, error) {

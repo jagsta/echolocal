@@ -9,6 +9,7 @@ import (
 	harness "github.com/ygelfand/libcountertop/pkg/runtime/control"
 	"github.com/ygelfand/libcountertop/pkg/runtime/control/screencmd"
 
+	"github.com/ygelfand/echolocal/internal/feature/nws"
 	"github.com/ygelfand/echolocal/internal/feature/timer"
 	"github.com/ygelfand/echolocal/internal/hardware/display"
 )
@@ -28,6 +29,14 @@ func showing(t *harness.Tree) {
 	}
 
 	open, stack, ready := panelCommands()
-	t.Add(harness.DisplayTask, shot, thumbsCommand(), open, stack, screencmd.Timer(timer.Get))
+	t.Add(
+		harness.DisplayTask,
+		shot,
+		thumbsCommand(),
+		open,
+		stack,
+		screencmd.Timer(timer.Get),
+		screencmd.Warning(nws.Get),
+	)
 	t.Add(harness.DeviceTask, ready)
 }

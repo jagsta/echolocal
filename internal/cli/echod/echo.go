@@ -38,7 +38,8 @@ func newEchoCmd() *cobra.Command {
 			"the echo can buy — a real filter does better, never worse.\n\n" +
 			"echod holds both devices, so stop the service first and start it after:\n" +
 			"  setprop ctl.stop ledcontroller\n" +
-			"  setprop ctl.start ledcontroller",
+			"  setprop ctl.start ledcontroller\n" +
+			"On an Echo Show the service is echod.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()

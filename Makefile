@@ -20,6 +20,11 @@ LDFLAGS := -X '$(BUILDVARS).Version=$(VERSION)' \
 
 BUILD_DIR := bin
 
+# UPX 5.x packs static ARM executables that fail upx -t.
+UPX_VERSION := 4.2.4
+UPX_DIR := $(BUILD_DIR)/upx-$(UPX_VERSION)
+UPX := $(UPX_DIR)/build/upx
+
 # Echo Dot 2: MT8163, Android 5.1 (API 22); Fire OS 5 runs an arm64 kernel, Fire OS 6 a 32-bit one that cannot exec arm64.
 ARCHES := arm64 arm
 
@@ -30,7 +35,7 @@ DEVICE_ENV := GOOS=linux GOARCH=$(DOT_ARCH) CGO_ENABLED=0
 
 BOARD ?=
 
-SCREEN_BOARDS := checkers cronos crown
+SCREEN_BOARDS := checkers cronos crown athena
 BOARD_BUILDS := $(SCREEN_BOARDS)
 
 TAGS ?=
@@ -38,7 +43,7 @@ PACK ?=
 empty :=
 space := $(empty) $(empty)
 comma := ,
-ALL_TAGS := $(strip $(TAGS) board_$(or $(BOARD),biscuit) $(if $(filter $(BOARD),$(SCREEN_BOARDS)),payload))
+ALL_TAGS := $(strip $(TAGS) board_$(or $(BOARD),biscuit) $(if $(filter $(BOARD),$(SCREEN_BOARDS)),voice payload))
 DEVICE_TAGS := $(if $(ALL_TAGS),-tags $(subst $(space),$(comma),$(ALL_TAGS)),)
 
 DEVICE_LDFLAGS := -s -w $(LDFLAGS) $(if $(BOARD),-X '$(BOARDVARS).pinned=$(BOARD)')
@@ -69,7 +74,9 @@ SURFACE_SRC = $(LIBCOUNTERTOP_DIR)/native/surface
 SURFACE_BIN = $(BUILD_DIR)/echolocal-surface-api$(NATIVE_API)
 CAMSHIM_BIN = $(BUILD_DIR)/libecholocal-camshim-api$(NATIVE_API).so
 CAMERA_BIN = $(BUILD_DIR)/echolocal-camera-api$(NATIVE_API)
-COUNTERTOP_NATIVE = $(MAKE) -f "$(LIBCOUNTERTOP_DIR)/native/Makefile" API=$(NATIVE_API) PREFIX=echolocal OUT="$(abspath $(BUILD_DIR))" NDK="$(NDK)" SURFACE_BIN="$(abspath $(SURFACE_BIN))" CAMERA_BIN="$(abspath $(CAMERA_BIN))" CAMSHIM_BIN="$(abspath $(CAMSHIM_BIN))"
+VOICE_BIN = $(BUILD_DIR)/echolocal-voice-api$(NATIVE_API)
+AIRPLAY_BIN = $(BUILD_DIR)/echolocal-airplay-api$(NATIVE_API)
+COUNTERTOP_NATIVE = $(MAKE) -f "$(LIBCOUNTERTOP_DIR)/native/Makefile" API=$(NATIVE_API) PREFIX=echolocal OUT="$(abspath $(BUILD_DIR))" NDK="$(NDK)" SURFACE_BIN="$(abspath $(SURFACE_BIN))" CAMERA_BIN="$(abspath $(CAMERA_BIN))" CAMSHIM_BIN="$(abspath $(CAMSHIM_BIN))" VOICE_BIN="$(abspath $(VOICE_BIN))" AIRPLAY_BIN="$(abspath $(AIRPLAY_BIN))"
 PARTS_DIR := internal/parts/payload
 PART_BOARDS := $(SCREEN_BOARDS)
 
@@ -105,10 +112,33 @@ build-echolocal: ## Build the host CLI into ./bin
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/echolocal ./cmd/echolocal
 
 .PHONY: build-echod
-build-echod: $(if $(filter $(BOARD),$(PART_BOARDS)),stage-parts) ## Cross-compile echod for the Echo Dot (DOT_ARCH=arm64 for a Fire OS 5 kernel; TAGS=noasm for the portable dot; PACK=upx to compress it)
+build-echod: $(if $(filter $(BOARD),$(PART_BOARDS)),stage-voice stage-airplay stage-parts) ##Cross-compile echod for the Echo Dot (DOT_ARCH=arm64 for a Fire OS 5 kernel; TAGS=noasm for the portable dot; PACK=bin/upx-4.2.4/build/upx to compress it)
 	@mkdir -p $(BUILD_DIR)
 	$(DEVICE_ENV) go build $(DEVICE_TAGS) -ldflags "$(DEVICE_LDFLAGS)" -o $(DEVICE_BIN) ./cmd/echod
 	$(if $(PACK),$(PACK) -q $(DEVICE_BIN))
+	$(if $(PACK),$(firstword $(PACK)) -q -t $(DEVICE_BIN))
+
+.PHONY: upx
+upx: $(UPX) ## Build the pinned UPX that packs device binaries
+
+$(UPX):
+	@command -v cmake >/dev/null || { echo "needs cmake: brew install cmake"; exit 1; }
+	@mkdir -p $(UPX_DIR)
+	curl -sSfL https://github.com/upx/upx/releases/download/v$(UPX_VERSION)/upx-$(UPX_VERSION)-src.tar.xz | tar -xJ -C $(UPX_DIR) --strip-components=1
+	cmake -S $(UPX_DIR) -B $(UPX_DIR)/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+	cmake --build $(UPX_DIR)/build -j >/dev/null
+
+.PHONY: stage-voice
+stage-voice: countertop-native-source ## Build and stage the voice command helper echod embeds
+	+$(COUNTERTOP_NATIVE) voice
+	@mkdir -p $(PARTS_DIR)
+	cp $(VOICE_BIN) $(PARTS_DIR)/echolocal-voice
+
+.PHONY: stage-airplay
+stage-airplay: countertop-native-source ## Build and stage the AirPlay mirroring helper echod embeds
+	+$(COUNTERTOP_NATIVE) airplay
+	@mkdir -p $(PARTS_DIR)
+	cp $(AIRPLAY_BIN) $(PARTS_DIR)/echolocal-airplay
 
 .PHONY: stage-parts
 stage-parts: build-surface build-camshim build-camera ## Stage the native parts echod embeds for the boards that carry them
@@ -265,7 +295,11 @@ FROM ?= $(RELEASES)/download/$(AT)
 PAGE ?= $(RELEASES)/tag/$(AT)
 
 .PHONY: manifest
-manifest: build-echod-all ## Write the manifest a device fetches to find this build
+manifest: build-echod-all ## Build every release binary and write the manifest a device fetches to find this build
+	@$(MAKE) --no-print-directory manifest-json
+
+.PHONY: manifest-json
+manifest-json: ## Write the manifest for the binaries already in bin
 	@mkdir -p $(BUILD_DIR)
 	go run ./cmd/mkmanifest \
 		-version "$(AT)" \
@@ -282,7 +316,7 @@ BOOT_TAG := boot-images
 BOOT_DIR := internal/host/assets/boot
 
 LOGO_SRC := assets
-LOGO_OUT := internal/ui
+LOGO_OUT := internal/brand
 
 .PHONY: logos
 logos: ## Rescale the committed artwork into what echod embeds
@@ -300,12 +334,21 @@ boot-images: ## Publish the boot images the echolocal CLI fetches at install tim
 	gh release upload $(BOOT_TAG) $(BOOT_DIR)/*.img --clobber
 	@echo "$(BOOT_TAG) now serves the boot images"
 
+NEXT_DEV := $(BASE)-dev.$(EPOCH)
+
 .PHONY: release-dev
-release-dev: ## Publish this working tree to the dev channel, without pushing anything
+release-dev: ## Tag this commit as the next dev prerelease; the release workflow builds it
+	@$(MAKE) --no-print-directory tag TAG=$(NEXT_DEV)
+
+.PHONY: release-dev-local
+release-dev-local: $(UPX) ## Build this working tree here and publish it as the next dev prerelease
 	@command -v gh >/dev/null || { echo "needs the gh CLI: brew install gh"; exit 1; }
 	@command -v goreleaser >/dev/null || { echo "needs goreleaser: brew install goreleaser"; exit 1; }
-	@command -v upx >/dev/null || { echo "needs upx: brew install upx"; exit 1; }
-	VERSION=$(VERSION) PACK=upx goreleaser release --snapshot --clean
+	@$(MAKE) --no-print-directory publish-local TAG=$(NEXT_DEV)_local
+
+.PHONY: publish-local
+publish-local:
+	VERSION=$(TAG) PACK="$(UPX) --lzma -2" goreleaser release --snapshot --clean
 	@for f in dist/host_*/echolocal dist/host_*/echolocal.exe; do \
 		[ -f "$$f" ] || continue; \
 		d=$$(basename $$(dirname $$f)); \
@@ -315,19 +358,24 @@ release-dev: ## Publish this working tree to the dev channel, without pushing an
 		ext=$${f##*.}; [ "$$ext" = exe ] && ext=.exe || ext=; \
 		cp "$$f" "dist/echolocal_$${os}_$${arch}$${ext}"; \
 	done
-	@$(MAKE) --no-print-directory manifest VERSION=$(VERSION) FROM=$(RELEASES)/download/dev PAGE=$(RELEASES)/tag/dev
-	@gh release view dev >/dev/null 2>&1 || \
-		gh release create dev --prerelease --title dev --notes "Rolling build for devices on the dev channel."
-	gh release upload dev dist/echolocal_* $(BUILD_DIR)/echod-* $(BUILD_DIR)/manifest.json --clobber
-	@echo "dev channel now serves $(VERSION)"
+	@$(MAKE) --no-print-directory manifest-json VERSION=$(TAG) FROM=$(RELEASES)/download/$(TAG) PAGE=$(RELEASES)/tag/$(TAG)
+	gh release create $(TAG) --prerelease --title $(TAG) \
+		--notes "Built locally from $(BUILT_FROM), not by CI." \
+		dist/echolocal_* $(BUILD_DIR)/echod-* $(BUILD_DIR)/manifest.json
+	@echo "dev channel now serves $(TAG)"
 
 .PHONY: release
-release: ## Release the version in VERSION
+release: ## Release the version in VERSION, then start the next patch version
+	git push origin HEAD
 	@$(MAKE) --no-print-directory tag TAG=$(BASE)
+	@next=$$(echo $(BASE) | awk -F. -v OFS=. '{$$NF += 1; print}'); \
+		echo "$$next" > VERSION; \
+		git commit -q -m "Start $$next" VERSION; \
+		echo "VERSION is now $$next (committed, not pushed)"
 
 .PHONY: tag
 tag:
-	@test -n "$(TAG)" || { echo "usage: make release, make release-dev, or make tag TAG=0.4.2"; exit 1; }
+	@test -n "$(TAG)" || { echo "usage: make release, make release-dev, make release-dev-local, or make tag TAG=0.4.2"; exit 1; }
 	@test -z "$$(git status --porcelain)" || { echo "the working tree is dirty"; exit 1; }
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null && { echo "$(TAG) already exists"; exit 1; } || true
 	git tag -a "$(TAG)" -m "EchoLocal $(TAG)"

@@ -20,6 +20,7 @@ import (
 
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
+	"github.com/ygelfand/echolocal/internal/labels"
 )
 
 const Group setting.Group = "Intercom"
@@ -92,7 +93,7 @@ func PairingTable() *setting.Table[config.Intercom] {
 				return nil
 			},
 		},
-	}, setting.Messages{})
+	}, labels.Messages())
 }
 
 func store(s Setting, v string) error {

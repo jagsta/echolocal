@@ -12,7 +12,7 @@ import (
 	"github.com/ygelfand/echolocal/internal/board"
 	"github.com/ygelfand/echolocal/internal/component"
 	"github.com/ygelfand/echolocal/internal/config"
-	"github.com/ygelfand/echolocal/internal/feature/drawer"
+	"github.com/ygelfand/echolocal/internal/feature/apps"
 	"github.com/ygelfand/echolocal/internal/feature/shell"
 )
 
@@ -29,7 +29,7 @@ func card() *sharedcard.Card {
 }
 func Page() sharedshell.View { return card().Page() }
 func Showing() bool          { return shell.Get().Top() == Page() }
-func onRail()                { drawer.Get().Add(card().Rail()) }
+func onRail()                { apps.Get().Add(card().App()) }
 
 func init() {
 	component.Register(

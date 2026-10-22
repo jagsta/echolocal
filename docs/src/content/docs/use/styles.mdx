@@ -1,0 +1,77 @@
+---
+title: Styles and themes
+description: Nine UI styles and eighteen color themes.
+---
+
+import { Image } from 'astro:assets';
+import neon from '../../../assets/screens/tessera-neon.webp';
+import terminal from '../../../assets/screens/tessera-terminal.webp';
+import skeuo from '../../../assets/screens/tessera-skeuo.webp';
+import theme from '../../../assets/screens/show-theme.png';
+
+**Style** sets shapes, borders, shadows and type. **Theme** sets colors. Both apply to everything on
+the device and are under **Settings → Display** and in Home Assistant.
+<div class="carousel">
+	<img src="/carousel/styles-0.png" alt="One Tessera page in a style, 1 of 9" loading="lazy" />
+	<img src="/carousel/styles-1.png" alt="One Tessera page in a style, 2 of 9" loading="lazy" />
+	<img src="/carousel/styles-2.png" alt="One Tessera page in a style, 3 of 9" loading="lazy" />
+	<img src="/carousel/styles-3.png" alt="One Tessera page in a style, 4 of 9" loading="lazy" />
+	<img src="/carousel/styles-4.png" alt="One Tessera page in a style, 5 of 9" loading="lazy" />
+	<img src="/carousel/styles-5.png" alt="One Tessera page in a style, 6 of 9" loading="lazy" />
+	<img src="/carousel/styles-6.png" alt="One Tessera page in a style, 7 of 9" loading="lazy" />
+	<img src="/carousel/styles-7.png" alt="One Tessera page in a style, 8 of 9" loading="lazy" />
+	<img src="/carousel/styles-8.png" alt="One Tessera page in a style, 9 of 9" loading="lazy" />
+</div>
+
+<Image src={theme} alt="The Theme picker" class="screen" />
+
+## Styles
+
+| Style | Look |
+|---|---|
+| **Standard** | Flat cards |
+| **Material You** | Rounded tiles |
+| **Glass** | See-through panels |
+| **E-ink** | Paper and ink |
+| **Metro** | Flat squares |
+| **Terminal** | Monospace, green screen |
+| **Hi-fi** | Backlit receiver display |
+| **Neon** | Glowing outlines |
+| **Skeuo** | Raised buttons |
+
+## Themes
+
+**Default** uses the style's palette.
+
+- **Dark:** Midnight, Nocturne, Slate, Ember, Forest, Ocean, Plum, Carbon, Phosphor, Amber, Graphite,
+  Synthwave
+- **Light:** Paper, Linen, Mist, Bloom, Braun, Ink
+
+## Custom theme
+
+The **Custom** tile is the last in the theme picker. Tap it to use your colors; tap its pencil to
+edit them. The editor has six colors: Background, Cards, Text, Secondary text, Accent and Second
+accent. Pick one, then choose its color on the square and the hue slider. Each color saves a moment
+after you let go, and the screen changes with it. Colors you haven't picked come from Paper.
+
+Custom counts as a dark theme when its background is dark.
+
+In Home Assistant the six colors are text entities that take `#rrggbb`; an empty value goes back to
+Paper's color.
+
+## Examples
+
+<div class="pair even">
+	<Image src={terminal} alt="Terminal style with the Phosphor theme" class="screen" />
+	<Image src={neon} alt="Neon style with the Synthwave theme" class="screen" />
+</div>
+
+Terminal with Phosphor; Neon with Synthwave.
+
+<Image src={skeuo} alt="Skeuo style with the Braun theme" class="screen" />
+
+Skeuo with Braun.
+
+## Size
+
+**Settings → Display → Size**: Mini, Compact, Medium, Large, Extra large.
